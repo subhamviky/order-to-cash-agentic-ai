@@ -9,8 +9,8 @@ router = APIRouter(prefix="/api/v1", tags=["workflow"])
 
 @router.post("/workflow", response_model=WorkflowResponse)
 async def process_workflow(
-    request:WorkflowRequest
-    settings:Settings = Depends(get_settings).
+    request:WorkflowRequest,
+    settings:Settings = Depends(get_settings),
 ):
     """
     Main entry point for all Order-to-Cash AI workflows.
@@ -21,12 +21,12 @@ async def process_workflow(
     try:
         response = WorkflowResponse(
             session_id = request.session_id,
-            intent = "KNOWLEDGE"
+            intent = "KNOWLEDGE",
             response = f"[STUB] Processing: {request.query}",
             groundedness_score = 1.0,
             latency_ms = (time.monotonic() - start_time) * 1000,
         )
-        request response
+        return response
     
     except Exception as e:
         logger.error(f"Workflow error: {e}", exc_info=True)

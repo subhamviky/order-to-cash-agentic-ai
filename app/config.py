@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     #LLM
     bedrock_model_id:str = "anthropic.claude-3-sonnet-20240229-v1:0"
-    bedrock_model_id_small: = "anthropic.claude-3-haiku-20240307-v1:0"
+    bedrock_model_id_small: str= "anthropic.claude-3-haiku-20240307-v1:0"
     max_tokens: int = 2048
     temperature: float = 0.1
 
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     sqs_dlq_url:str = ""
 
     #Tool Endpoints
-    tool_base_url:str = "http"://localhost:8001"
+    tool_base_url:str = "http://localhost:8001"
 
     #Guardrails
     max_agent_steps:int = 10
