@@ -15,7 +15,7 @@
 
 ## Why This Project Exists
 
-Most Agentic AI demos are toy examples. This project applies **the same enterprise resilience
+This project applies **the enterprise resilience
 patterns used in production $350M financial settlement systems** — idempotency, saga compensation,
 circuit breakers, exactly-once processing, DLQ escalation — directly to an AI-native architecture
 running on AWS.
