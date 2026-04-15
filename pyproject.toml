@@ -2,7 +2,7 @@
 name = "order-to-cash-agentic-ai"
 version = "0.1.0"
 description = "Enterprise-grade Order-to-Cash Agentic AI Platform"
-authors = ["Your Name <you@example.com>"]
+authors = ["Subham Gupta"]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"

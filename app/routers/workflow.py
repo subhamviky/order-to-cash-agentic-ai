@@ -10,8 +10,7 @@ router = APIRouter(prefix="/api/v1", tags=["workflow"])
 @router.post("/workflow", response_model=WorkflowResponse)
 async def process_workflow(
     request:WorkflowRequest,
-    settings:Settings = Depends(get_settings),
-):
+    settings:Settings = Depends(get_settings) ):
     """
     Main entry point for all Order-to-Cash AI workflows.
     Routes to appropriate agent based on intent classification.

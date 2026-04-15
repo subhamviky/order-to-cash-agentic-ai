@@ -1,4 +1,4 @@
-from pydantic import BaseModel, env_file_encoding
+from pydantic import BaseModel, Field
 from typing import Optional, Literal
 from datetime import datetime
 import uuid
