@@ -27,6 +27,19 @@ RAG             = CQRS knowledge retrieval layer
 MCP Tool        = idempotency-aware API action
 Orchestration   = saga-compensating control plane
 ```
+## Core Mental Model — SAP to Agentic
+
+13+ years of SAP enterprise architecture maps **directly** to modern AI-native components.
+This is not a translation — it is the same pattern set, different runtime.
+
+![SAP RAP to Python Agentic Stack mental model](docs/images/sap-to-agentic-mental-model.svg)
+
+| SAP RAP Layer | Python Agentic Layer | Shared Pattern |
+|--------------|---------------------|----------------|
+| OData Service (Service Binding) | FastAPI Routers | API endpoint exposure |
+| Behavior Implementation | Agent Classes | Business logic execution |
+| Behavior Definition (BDEF) | BaseAgent (Abstract Class) | Contract / operation declarations |
+| CDS Entity | AgentState (TypedDict) | Global shared state structure |
 
 ---
 
