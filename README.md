@@ -79,7 +79,9 @@ This is not a translation — it is the same pattern set, different runtime.
                    │  risk_score    open_case   │
                    └───────────────────────────┘
 ```
-
+> Built following the E2A (Enterprise-to-Agentic) Framework — NFR-First methodology,
+> full Clean Architecture layering, and AI-specific SLO enforcement.
+> See [github.com/subhamviky/e2a-framework](https://github.com/subhamviky/e2a-framework)
 ---
 
 ## Key Engineering Decisions
