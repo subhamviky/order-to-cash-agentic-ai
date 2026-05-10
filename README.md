@@ -221,7 +221,7 @@ multi-agent + Bedrock RAG.
 
 ## Author
 
-**Subham Gupta** — Staff Architect & AI Architect, SAP Labs India
+**Subham Gupta** — Staff Architect & AI Architect,
 13+ years delivering production distributed systems governing $350M+ in annual financial volumes.
 
 [LinkedIn](https://www.linkedin.com/in/subham-gupta-0a05a058) · [Email](mailto:subhamviky@gmail.com)
