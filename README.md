@@ -1,7 +1,6 @@
 # Order-to-Cash Agentic AI Platform
 
-> **Enterprise-grade, production-ready Agentic AI system** built on AWS — translating 13+ years of
-> financial settlement architecture ($350M+ transaction volumes) into a cloud-native, AI-native platform.
+> **Enterprise-grade, production-ready Agentic AI system** built on AWS — translating 13+ years of financial settlement architecture ($350M+ transaction volumes) into a cloud-native, AI-native platform.
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?style=flat&logo=fastapi&logoColor=white)
@@ -13,12 +12,19 @@
 
 ---
 
+## 🔄 Architectural Evolution Path
+
+> **Status: Phase 2 (In-Progress refactoring to E2A alignment)**
+
+This repository operates under an intentional **"Spike-and-Stabilize"** engineering pattern, serving as the primary Python reference validation spike for the [E2A Architecture Framework](https://github.com/subhamviky/e2a-framework).
+* **Phase 1 (Stabilized):** Successfully built and verified functional multi-agent coordination boundaries, custom tool endpoints, and infrastructure deployment pipelines.
+* **Phase 2 (Active):** Refactoring all standalone nodes and custom orchestration mechanisms to inherit directly from E2A's `BaseAgent` and `BaseWorkflow` abstract class contracts. This proves the transition from procedural agent prototyping to enterprise contract-first software design.
+
+---
+
 ## Why This Project Exists
 
-This project applies **the enterprise resilience
-patterns used in production $350M financial settlement systems** — idempotency, saga compensation,
-circuit breakers, exactly-once processing, DLQ escalation — directly to an AI-native architecture
-running on AWS.
+This project applies **the enterprise resilience patterns used in production $350M financial settlement systems** — idempotency, saga compensation, circuit breakers, exactly-once processing, DLQ escalation — directly to an AI-native architecture running on AWS.
 
 **Core mental model:**
 ```
@@ -29,17 +35,16 @@ Orchestration   = saga-compensating control plane
 ```
 ## Core Mental Model — SAP to Agentic
 
-13+ years of SAP enterprise architecture maps **directly** to modern AI-native components.
-This is not a translation — it is the same pattern set, different runtime.
+13+ years of SAP enterprise architecture maps **directly** to modern AI-native components. This is not a translation — it is the same pattern set, different runtime.
 
 ![SAP RAP to Python Agentic Stack mental model](docs/images/sap-to-agentic-mental-model.svg)
 
-| SAP RAP Layer | Python Agentic Layer | Shared Pattern |
-|--------------|---------------------|----------------|
-| OData Service (Service Binding) | FastAPI Routers | API endpoint exposure |
-| Behavior Implementation | Agent Classes | Business logic execution |
-| Behavior Definition (BDEF) | BaseAgent (Abstract Class) | Contract / operation declarations |
-| CDS Entity | AgentState (TypedDict) | Global shared state structure |
+| SAP RAP / OOP Layer | Python Agentic Component | E2A Shared Paradigm |
+| :--- | :--- | :--- |
+| **OData Service (Service Binding)** | FastAPI Routers | API endpoint exposure & decoupled ingress boundary. |
+| **Behavior Implementation** | Agent Subclasses | Domain business logic and intent execution. |
+| **Behavior Definition (BDEF)** | `BaseAgent` (Abstract Class) | Non-Functional Requirement (NFR) contract declarations. |
+| **CDS Entity** | `AgentState` (TypedDict) | Graph-wide global shared state structure. |
 
 ---
 
@@ -79,84 +84,81 @@ This is not a translation — it is the same pattern set, different runtime.
                    │  risk_score    open_case   │
                    └───────────────────────────┘
 ```
-> Built following the E2A (Enterprise-to-Agentic) Framework — NFR-First methodology,
-> full Clean Architecture layering, and AI-specific SLO enforcement.
-> See [github.com/subhamviky/e2a-framework](https://github.com/subhamviky/e2a-framework)
+> Derived from the **[E2A Framework Specifications](https://github.com/subhamviky/e2a-framework)**
+
 ---
 
 ## Key Engineering Decisions
 
-| Pattern | Implementation | Enterprise Precedent |
-|---------|---------------|----------------------|
-| **Idempotency** | DynamoDB two-layer: GSI query + conditional expression | Same pattern as $350M settlement engine |
-| **Saga Compensation** | LangGraph state machine with CriticAgent rollback | Multi-agent failure recovery |
-| **Circuit Breaker** | `pybreaker` per downstream service | Bedrock, OpenSearch, tool isolation |
-| **DLQ Escalation** | SQS → DLQ after 3 retries + CloudWatch alarm | Zero silent workflow drops |
-| **Backoff + Jitter** | `tenacity` exponential + random jitter | Thundering herd prevention on LLM endpoints |
-| **Model Routing** | RouterAgent → Haiku; specialists → Sonnet | FinOps: cost-optimised per task complexity |
-| **Hybrid RAG** | BM25 + KNN → RRF → cross-encoder reranker | Higher retrieval precision than pure vector |
-| **Policy-as-Code** | `governance.yaml` per-agent tool allow/deny | Approval gates, redaction, audit trails |
+| Pattern Element | Cloud-Native & AI Platform Implementation | Enterprise Precedent |
+| :--- | :--- | :--- |
+| **Idempotency** | DynamoDB two-layer: GSI query + conditional expression | Same pattern as $350M settlement engine mapping to the enterprise Line-Element Key (`REF_ELEM_KEY`). |
+| **Saga Compensation** | LangGraph state machine with CriticAgent rollback | Multi-agent automated failure recovery and transactional rollback. |
+| **Circuit Breaker** | `pybreaker` per downstream service component | Bedrock, OpenSearch, and tool endpoint failure isolation. |
+| **DLQ Escalation** | SQS $\rightarrow$ DLQ after 3 retries + CloudWatch alarm | Zero silent drops; every failure is surfaced to protect error budgets. |
+| **Backoff + Jitter** | `tenacity` exponential + random jitter | Thundering herd prevention on high-frequency LLM endpoints. |
+| **Model Routing** | RouterAgent $\rightarrow$ Haiku; specialists $\rightarrow$ Sonnet | FinOps: runtime vendor arbitrage optimized per task complexity. |
+| **Hybrid RAG** | BM25 + KNN $\rightarrow$ RRF $\rightarrow$ cross-encoder reranker | High-precision retrieval engine providing context-grounded reasoning. |
+| **Policy-as-Code** | `governance.yaml` per-agent tool allow/deny matrix | Approval gates, redaction filters, and structural audit trails. |
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| API Server | FastAPI 0.111 + Uvicorn on ECS Fargate |
-| Agent Orchestration | LangGraph — 5-agent state machine |
-| LLM | Amazon Bedrock (Claude 3 Sonnet + Haiku) |
-| RAG Vector Store | Amazon OpenSearch (KNN + BM25 hybrid) |
-| Embeddings | sentence-transformers / Bedrock Titan |
-| Tool Microservices | FastAPI + AWS Lambda (Mangum) |
-| Persistence | DynamoDB (orders, cases, idempotency, LLM cache) |
-| Async Queue | SQS FIFO + Dead Letter Queue |
-| Infrastructure | Terraform 1.6 on AWS (ap-south-1) |
-| Observability | CloudWatch + AWS X-Ray + OpenTelemetry |
-| CI/CD | GitHub Actions (OIDC, no stored credentials) |
-| RAG Evaluation | RAGAS (faithfulness gate in CI/CD) |
+| Platform Layer | Technical Selection |
+| :--- | :--- |
+| **API Server** | FastAPI 0.111 + Uvicorn on AWS ECS Fargate |
+| **Agent Orchestration** | LangGraph — 5-agent state machine |
+| **LLM Inference** | Amazon Bedrock (Claude 3 Sonnet + Haiku) |
+| **RAG Vector Store** | Amazon OpenSearch (KNN + BM25 hybrid indices) |
+| **Embeddings** | sentence-transformers / Bedrock Titan |
+| **Tool Microservices** | FastAPI + AWS Lambda (Mangum handlers) |
+| **Persistence Cache** | Amazon DynamoDB (orders, cases, idempotency, LLM cache) |
+| **Async Ingestion** | Amazon SQS FIFO + Dead-Letter Queue (DLQ) |
+| **Infrastructure** | Terraform 1.6 on AWS (ap-south-1 deployment) |
+| **Observability** | CloudWatch + AWS X-Ray + Distributed OpenTelemetry |
+| **CI/CD Pipeline** | GitHub Actions with OIDC Workload Identity Federation |
+| **RAG Evaluation** | RAGAS (faithfulness verification gates in delivery pipeline) |
 
 ---
 
-## Agents
+## Agents Layout
 
-| Agent | Model | Responsibility | Tools |
-|-------|-------|---------------|-------|
-| **RouterAgent** | Haiku | Intent classification: ORDER\_OPS / FINANCE / KNOWLEDGE | None |
-| **KnowledgeAgent** | Sonnet | RAG-grounded answers with mandatory citations | OpenSearch retriever |
-| **OrderOpsAgent** | Sonnet | Order creation, stock checks, validation | `create_order`, `check_stock` |
-| **FinanceAgent** | Sonnet | Risk scoring, approval gates, policy enforcement | `risk_score`, `open_case` |
-| **CriticAgent** | Haiku | Groundedness scoring (SLO >= 0.85), response rewriting | None |
+| Agent | Model | Responsibility | Operational Tools |
+| :--- | :--- | :--- | :--- |
+| **RouterAgent** | Haiku | Intent classification: `ORDER_OPS` / `FINANCE` / `KNOWLEDGE`. | None |
+| **KnowledgeAgent** | Sonnet | RAG-grounded answers with mandatory citation mappings. | OpenSearch retriever tool |
+| **OrderOpsAgent** | Sonnet | Order creation, stock availability checks, validations. | `create_order`, `check_stock` |
+| **FinanceAgent** | Sonnet | Risk scoring, financial approval gates, policy enforcement. | `risk_score`, `open_case` |
+| **CriticAgent** | Haiku | Groundedness scoring (SLO $\ge$ 0.85), dynamic response rewriting. | None |
 
 ---
 
-## SLOs
+## Service Level Objectives (SLOs)
 
-| SLO | Target | Measured By |
-|-----|--------|-------------|
-| p95 Workflow Latency | < 2.5 sec | CloudWatch `WorkflowLatencyMs` p95 |
-| Groundedness | >= 0.85 | RAGAS faithfulness — CI gate blocks deployment |
-| Availability | >= 99.5% | ALB 5xx error rate |
-| Cost per Workflow | < $0.03 | Token count x model price → `WorkflowCostUSD` |
+| Objective Metric | Target SLA | Measured By |
+| :--- | :--- | :--- |
+| **p95 Workflow Latency** | < 2.5 sec | CloudWatch custom telemetry metric `WorkflowLatencyMs` p95 |
+| **Groundedness / Faithfulness** | $\ge$ 0.85 | RAGAS evaluation framework — CI gate blocks deployment pipelines |
+| **System Availability** | $\ge$ 99.5% | Application Load Balancer (ALB) 5xx error rate thresholds |
+| **Cost per Workflow** | < \$0.03 | Runtime token metadata count $\times$ model price $\rightarrow$ `WorkflowCostUSD` |
 
 ---
 
 ## Project Status
 
 ### Phase 1 — Complete
-
-- [x] FastAPI service on AWS Lambda
+- [x] FastAPI service layer on AWS Lambda
 - [x] Async event processing via SQS with DLQ escalation and exponential backoff
 - [x] DynamoDB two-layer idempotency (GSI query + conditional expression)
 - [x] CloudWatch structured logging with correlation ID threading
 
 ### Phase 2 — In Progress
-
 - [x] LangGraph 5-agent orchestration scaffold
 - [x] All agents implemented: Router, Knowledge, OrderOps, Finance, Critic
-- [x] Tool microservices: create\_order, check\_stock, risk\_score, open\_case
-- [ ] Amazon Bedrock RAG pipeline (OpenSearch + RAGAS eval)
-- [ ] AWS Terraform IaC (ECS Fargate, ALB, API Gateway, OpenSearch)
+- [x] Tool microservices: create_order, check_stock, risk_score, open_case
+- [ ] Amazon Bedrock RAG pipeline (OpenSearch + RAGAS eval integration)
+- [ ] AWS Terraform IaC setup (ECS Fargate, ALB, API Gateway, OpenSearch)
 - [ ] GitHub Actions CI/CD with RAG eval gate and automated rollback
 - [ ] NFRs: circuit breakers, FinOps model routing, policy-as-code governance
 
@@ -185,11 +187,18 @@ order-to-cash-agentic-ai/
 ## Local Development
 
 ```bash
-git clone https://github.com/subhamviky/order-to-cash-agentic-ai.git
+# Clone and navigate to workspace
+git clone [https://github.com/subhamviky/order-to-cash-agentic-ai.git](https://github.com/subhamviky/order-to-cash-agentic-ai.git)
 cd order-to-cash-agentic-ai
+
+# Initialize dependencies via Poetry
 pip install poetry==1.7.1
 poetry install
-docker-compose up          # FastAPI + OpenSearch
+
+# Spin up local container nodes
+docker-compose up
+
+# Execute primary unit test streams
 poetry run pytest tests/unit/ -v
 ```
 
