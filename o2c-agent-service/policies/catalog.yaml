@@ -1,0 +1,12 @@
+# Reference data for the demo tenant. Accounts are settlement-service ledger accounts.
+tenant: acme
+currency: EUR
+receivable_account: ACC-3000     # the merchant's account: payee of every order
+customers:
+  CUST-ACME:   {name: ACME Retail,      payer_account: ACC-2000,    credit_limit: "20000.00"}
+  CUST-GLOBEX: {name: Globex Stores,    payer_account: ACC-1000,    credit_limit: "100000.00"}
+  CUST-HOLD:   {name: Initech (on hold), payer_account: ACC-BLOCKED, credit_limit: "50000.00"}
+products:
+  SKU-100: {name: Thermal printer, price: "120.00", stock: 50}
+  SKU-200: {name: Barcode scanner, price: "85.50",  stock: 200}
+  SKU-300: {name: POS terminal,    price: "1450.00", stock: 10}

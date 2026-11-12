@@ -12,6 +12,8 @@ WORKDIR /app
 RUN groupadd -r appgroup && useradd -r -g appgroup -u 1001 appuser
 COPY --from=builder /build/.venv /app/.venv
 COPY src/ /app/src/
+COPY policies/ /app/policies/
+COPY knowledge/ /app/knowledge/
 ENV PATH="/app/.venv/bin:$PATH" PYTHONPATH="/app/src"
 USER appuser
 EXPOSE 8000

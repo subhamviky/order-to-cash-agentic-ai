@@ -129,7 +129,7 @@ resource "google_cloud_run_v2_service" "app" {
     service_account = google_service_account.app.email
     scaling {
       min_instance_count = 0
-      max_instance_count = 3
+      max_instance_count = 1 # state is in memory in v1 (src/o2c_agent_service/services/stores.py)
     }
     containers {
       image = var.image
@@ -143,6 +143,14 @@ resource "google_cloud_run_v2_service" "app" {
       env {
         name  = "ENVIRONMENT"
         value = var.environment
+      }
+      env {
+        name  = "SETTLEMENT_API_URL"
+        value = var.settlement_api_url
+      }
+      env {
+        name  = "RECONCILIATION_API_URL"
+        value = var.reconciliation_api_url
       }
       liveness_probe {
         http_get {

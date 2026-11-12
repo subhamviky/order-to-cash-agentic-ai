@@ -1,0 +1,40 @@
+# Policy as code for o2c-agent-service. Read at start-up by services/governance.py.
+# Changing this file changes behaviour without a code change; CI re-runs every gate.
+
+entitlements:                  # which caller roles may reach which agent (ABAC gate)
+  RouterAgent: [sales, finance, finance-approver, viewer]
+  OrderExecutionAgent: [sales]
+  FinanceAgent: [sales, finance, finance-approver]
+  KnowledgeAgent: [sales, finance, finance-approver, viewer]
+
+tools:                         # per-agent tool allow-list; anything else is denied
+  OrderExecutionAgent: [check_stock, reserve_stock, release_stock, submit_settlement]
+  FinanceAgent: [get_order, get_settlement, open_exceptions]
+  KnowledgeAgent: []
+  RouterAgent: []
+
+approval:
+  threshold: "5000.00"         # orders above this amount wait for a human decision
+  approver_role: finance-approver
+  four_eyes: true              # the requester can never approve their own order
+
+firewall:                      # ingress: requests matching any pattern are refused
+  injection_patterns:
+    - "ignore (all )?(previous|prior) instructions"
+    - "disregard (the|your) (rules|policy|instructions)"
+    - "you are now"
+    - "system prompt"
+    - "approve (it|this|the order) yourself"
+  max_query_chars: 500
+
+redaction:                     # ingress and egress: masked before the model or the caller sees them
+  - name: card-number
+    pattern: "\\b(?:\\d[ -]?){13,16}\\b"
+    mask: "[CARD]"
+  - name: email
+    pattern: "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
+    mask: "[EMAIL]"
+
+capacity:
+  max_inflight: 20             # admission control: requests beyond this are rejected
+  max_token_budget: 4000       # per request, across all agents

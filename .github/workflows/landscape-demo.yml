@@ -1,0 +1,109 @@
+name: landscape-demo
+
+# The whole Order-to-Cash landscape on one runner: settlement-service (Java, H2),
+# reconciliation-service (Python, DynamoDB on a moto server) and o2c-agent-service,
+# each from the main branch of its own repository, then scripts/landscape_demo.py.
+on:
+  workflow_dispatch:
+    inputs:
+      settlement_ref:
+        description: "financial-settlement-platform branch or tag"
+        default: "main"
+      reconciliation_ref:
+        description: "aws-reconciliation-engine branch or tag"
+        default: "main"
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: eu-west-1
+      AWS_DEFAULT_REGION: eu-west-1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: o2c
+      - uses: actions/checkout@v4
+        with:
+          repository: subhamviky/financial-settlement-platform
+          ref: ${{ inputs.settlement_ref }}
+          path: settlement
+      - uses: actions/checkout@v4
+        with:
+          repository: subhamviky/aws-reconciliation-engine
+          ref: ${{ inputs.reconciliation_ref }}
+          path: reconciliation
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install "poetry>=2.0,<3"
+
+      - name: Start settlement-service on :8080
+        working-directory: settlement/settlement-service
+        run: |
+          mvn -B -q package -DskipTests
+          nohup java -jar "$(ls target/*.jar | head -1)" > "$RUNNER_TEMP/settlement.log" 2>&1 &
+
+      - name: Start a moto server on :5000 and create the reconciliation table
+        working-directory: reconciliation/reconciliation-service
+        run: |
+          pip install "moto[server]>=5.0"
+          nohup moto_server -p 5000 > "$RUNNER_TEMP/moto.log" 2>&1 &
+          for _ in $(seq 30); do curl -fs http://localhost:5000/moto-api/ >/dev/null && break; sleep 1; done
+          poetry install --no-interaction
+          AWS_ENDPOINT_URL=http://localhost:5000 poetry run python - <<'PY'
+          import boto3
+          boto3.client("dynamodb").create_table(
+              TableName="reconciliation", BillingMode="PAY_PER_REQUEST",
+              KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
+              AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"},
+                                    {"AttributeName": "sk", "AttributeType": "S"}])
+          print("table reconciliation created")
+          PY
+
+      - name: Start reconciliation-service on :8001 (direct mode, no SQS)
+        working-directory: reconciliation/reconciliation-service
+        env:
+          AWS_ENDPOINT_URL: http://localhost:5000
+          TABLE_NAME: reconciliation
+          SETTLEMENT_API_URL: http://localhost:8080
+          RECON_TENANT: acme
+        run: nohup poetry run uvicorn reconciliation_service.main:app --port 8001 > "$RUNNER_TEMP/reconciliation.log" 2>&1 &
+
+      - name: Start o2c-agent-service on :8002
+        working-directory: o2c/o2c-agent-service
+        env:
+          SETTLEMENT_API_URL: http://localhost:8080
+          RECONCILIATION_API_URL: http://localhost:8001
+        run: |
+          poetry install --no-interaction
+          nohup poetry run uvicorn o2c_agent_service.main:app --port 8002 > "$RUNNER_TEMP/o2c.log" 2>&1 &
+
+      - name: Wait until all three answer
+        run: |
+          for url in http://localhost:8080/actuator/health http://localhost:8001/health http://localhost:8002/health; do
+            for _ in $(seq 90); do curl -fs "$url" >/dev/null && break; sleep 2; done
+            curl -fs "$url" >/dev/null && echo "up: $url"
+          done
+
+      - name: Run the cross-landscape scenario
+        working-directory: o2c/o2c-agent-service
+        run: poetry run python scripts/landscape_demo.py
+
+      - name: Service logs
+        if: always()
+        run: |
+          for f in settlement reconciliation o2c moto; do echo "::group::$f"; tail -n 80 "$RUNNER_TEMP/$f.log" || true; echo "::endgroup::"; done

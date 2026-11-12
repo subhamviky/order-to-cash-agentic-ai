@@ -1,0 +1,12 @@
+[
+  {"question": "What are our standard payment terms?", "expected_policy": "POL-TERMS-01"},
+  {"question": "Is there a discount for paying early?", "expected_policy": "POL-TERMS-02"},
+  {"question": "Which currency are orders settled in?", "expected_policy": "POL-TERMS-03"},
+  {"question": "What happens if an order exceeds the customer's credit limit?", "expected_policy": "POL-CREDIT-01"},
+  {"question": "Can a customer on hold with a blocked account place orders?", "expected_policy": "POL-CREDIT-02"},
+  {"question": "Which orders need approval and who can approve them?", "expected_policy": "POL-APPROVAL-01"},
+  {"question": "How are incoming bank payments reconciled?", "expected_policy": "POL-RECON-01"},
+  {"question": "Can a short payment be written off?", "expected_policy": "POL-WRITEOFF-01"},
+  {"question": "When do we refund a duplicate payment?", "expected_policy": "POL-REFUND-01"},
+  {"question": "What is the capital of France?", "expected_policy": null}
+]
