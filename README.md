@@ -18,11 +18,11 @@ This repository went through three stages. Each one is kept, so the path can be 
 
 | In the spike | In `main` | Framework that made the difference |
 |---|---|---|
-| LangGraph state machine with five agents | One E2A workflow with an agent registry: router (G2C-generated skeleton), intake, execution, finance, knowledge | E2A `BaseWorkflow`, `BaseAgent` |
+| LangGraph state machine with five agents | One E2A workflow of declared steps: router (G2C-generated skeleton) → intake → the specialist (execution, finance, knowledge), under one idempotency claim; an approval resumes the order at its paused step | E2A `BaseWorkflow` (`Steps`, `resume`), `BaseAgent` |
 | Bedrock models | E2A `SimulatedLLMService` behind the same boundary; every model output is checked before use | E2A LLM service boundary |
-| OpenSearch hybrid search | BM25 + vectors with reciprocal rank fusion, re-ranked by a governed `TOP_K`; answers must cite and be grounded | E2A `BaseRAGPipeline`, `BaseIndexingPipeline`; DSA `TOP_K` |
-| `governance.yaml` tool matrix | Kept and extended: entitlements, tool allow-list, approval threshold with four eyes, firewall, PII redaction, capacity | E2A `BaseGovernanceFramework`, `BaseValidationService` |
-| Lambda tool microservices | Governed tools with typed outcomes calling the **real** settlement and reconciliation services; an unknown outcome is recovered with the same idempotency key, never charged twice | E2A `BaseToolService`, `BaseMCPServer` |
+| OpenSearch hybrid search | BM25 + vectors with reciprocal rank fusion, re-ranked by a governed `TOP_K`; answers must cite and be grounded; one embedding model and one index shared by both sides | E2A `RAGPipeline` (embedding and index ports); DSA `TOP_K` |
+| `governance.yaml` tool matrix | Kept and extended: entitlements, tool allow-list, approval threshold with four eyes, firewall, PII redaction, capacity, as ordered governance stages with typed refusals | E2A `BaseGovernanceFramework` (stages), `BaseValidationService` |
+| Lambda tool microservices | Governed tools with typed outcomes calling the **real** settlement and reconciliation services, reads through `io_read` and payments through `io_modify`; an unknown outcome is recovered with the same idempotency key, never charged twice | E2A `BaseToolService`, `BaseMCPServer`, `BaseReconciliationService` |
 | AWS deployment | Google Cloud, as Terraform only; container image built and smoke-tested in CI; an AI-DLC release gate (seven stages, RAGAS gate, red team) decides what ships | A2C GCP landing zone; E2A `BasePipeline` |
 
 ## The project

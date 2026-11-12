@@ -2,16 +2,16 @@
 
 execute() (inherited, public) validates the input, applies the commit gate, and runs the
 call through the per-tool ResiliencePolicy (retry budget, circuit breaker, bulkhead).
-A call is retried only when it is replay-safe (an idempotency key, or a read marked
-safe_to_retry), and a timeout becomes the typed outcome UNKNOWN, never a blind retry.
-Every result carries physical_success and outcome: the agent's text is never the truth.
-The tenant travels in the payload: execute() keeps tenant_id as its own parameter and does
-not hand it on to the transport hook.
+Agents reach a tool only through E2A's io_read (reads, retried freely) or io_modify
+(material = True: always with an idempotency key; a transport failure is UNKNOWN, never a
+blind retry), limited by the governance tool_policy. Every result carries
+physical_success and a typed outcome: the agent's text is never the truth. The tenant
+comes from the request context (or, for MCP calls, from the server's caller).
 """
 from typing import Any, Callable, Dict, Optional
 
 import httpx
-from e2a_base import BaseToolService, PhysicalOutcome, RestToolService
+from e2a import BaseToolService, PhysicalOutcome, RestToolService
 
 
 class HttpJsonTool(RestToolService):
@@ -19,25 +19,25 @@ class HttpJsonTool(RestToolService):
 
     def __init__(self, name: str, base_url: str, method: str, path: str, required: tuple = (),
                  success: Callable[[int, Any], bool] = None, definitive: Callable[[int, Any], bool] = None,
-                 transport: Optional[httpx.AsyncBaseTransport] = None) -> None:
+                 transport: Optional[httpx.AsyncBaseTransport] = None, material: bool = False) -> None:
         self.name, self.base_url, self.method, self.path = name, base_url.rstrip("/"), method, path
-        self.required = required
+        self.required, self.material = required, material
         self.success = success or (lambda status, body: 200 <= status < 300)
         self.definitive = definitive or (lambda status, body: 400 <= status < 500)
         self.transport = transport
 
-    def get_endpoint(self, config=None, tenant_id=None, **kwargs):
+    def _get_endpoint(self, config=None, tenant_id=None, **kwargs):
         return self.base_url + self.path
 
     def _validate_input(self, payload, config=None, **kwargs):
-        return all(payload.get(f) not in (None, "") for f in ("tenant_id",) + self.required)
+        return all(payload.get(f) not in (None, "") for f in self.required)
 
     def _build_payload(self, payload, config=None, **kwargs):
         return payload
 
     async def _send_request(self, endpoint, body, token=None, timeout=None, config=None, **kwargs):
         body = dict(body)
-        headers = {"X-Tenant-Id": body.pop("tenant_id")}
+        headers = {"X-Tenant-Id": body.pop("tenant_id", None) or kwargs["tenant_id"]}
         if kwargs.get("idempotency_key"):
             headers["Idempotency-Key"] = kwargs["idempotency_key"]
         url = endpoint.format(**body)
@@ -59,20 +59,22 @@ class HttpJsonTool(RestToolService):
 class LocalTool(BaseToolService):
     """A tool implemented inside this service (stock, orders), behind the same contract."""
 
-    def __init__(self, name: str, fn: Callable[[Dict[str, Any]], Dict[str, Any]], required: tuple = ()) -> None:
-        self.name, self.fn, self.required = name, fn, required
+    def __init__(self, name: str, fn: Callable[[Dict[str, Any]], Dict[str, Any]], required: tuple = (),
+                 material: bool = False) -> None:
+        self.name, self.fn, self.required, self.material = name, fn, required, material
 
-    def get_endpoint(self, config=None, tenant_id=None, **kwargs):
+    def _get_endpoint(self, config=None, tenant_id=None, **kwargs):
         return f"local://{self.name}"
 
     def _validate_input(self, payload, config=None, **kwargs):
-        return all(payload.get(f) not in (None, "") for f in ("tenant_id",) + self.required)
+        return all(payload.get(f) not in (None, "") for f in self.required)
 
     def _build_payload(self, payload, config=None, **kwargs):
         return payload
 
     async def _send_request(self, endpoint, body, token=None, timeout=None, config=None, **kwargs):
-        return self.fn(dict(body))
+        body = dict(body)
+        return self.fn(dict(body, tenant_id=body.get("tenant_id") or kwargs["tenant_id"]))
 
 
 def settlement_tools(base_url: str, transport=None) -> Dict[str, HttpJsonTool]:
@@ -82,7 +84,7 @@ def settlement_tools(base_url: str, transport=None) -> Dict[str, HttpJsonTool]:
         "submit_settlement": HttpJsonTool(
             "submit_settlement", base_url, "POST", "/api/v1/settlements", required=("json",),
             success=completed, definitive=lambda status, body: status in (201, 400, 404, 409, 422),
-            transport=transport),
+            transport=transport, material=True),
         "get_settlement": HttpJsonTool(
             "get_settlement", base_url, "GET", "/api/v1/settlements/{settlement_id}",
             required=("settlement_id",), transport=transport),

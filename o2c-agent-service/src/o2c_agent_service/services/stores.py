@@ -5,11 +5,13 @@ Every change is a compare-and-set on E2A's InMemoryTransactionalStore, the refer
 adapter of BaseTransactionalStore; a Firestore adapter of the same contract is the
 backlog item that lifts the single-instance limit.
 """
+from decimal import Decimal
 from typing import List, Optional
 
+from e2a import BaseCheckpointStore
 from e2a_inmemory_adapters import InMemoryTransactionalStore
 
-from ..models.schemas import Approval, Order
+from ..models.schemas import Approval, Order, OrderRequest
 
 
 class OrderStore:
@@ -61,31 +63,44 @@ class InventoryStore:
                 return
 
 
-class ApprovalStore:
-    """The perimeter where a dehydrated workflow waits for a human decision."""
+class ApprovalStore(BaseCheckpointStore):
+    """The perimeter where a paused order waits for a human decision: E2A's checkpoint
+    store (BaseWorkflow saves the checkpoint, resume() decides it exactly once), with each
+    checkpoint also listed as an Approval for the API."""
 
     def __init__(self) -> None:
         self._db = InMemoryTransactionalStore()
         self._ids: List[str] = []
 
-    def put_new(self, approval: Approval) -> bool:
-        created = self._db.put_if_version(f"approval:{approval.approval_id}",
-                                          approval.model_dump(mode="json"), None).committed
-        if created:
+    def save(self, checkpoint, config=None, **kwargs) -> None:
+        state = checkpoint["state"]
+        approval = Approval(approval_id=checkpoint["checkpoint_id"], tenant_id=checkpoint["tenant_id"],
+                            requested_by=checkpoint["requested_by"],
+                            order_request=OrderRequest(**state["order_request"]),
+                            amount=Decimal(str(state["amount"])), idempotency_key=checkpoint["idempotency_key"],
+                            state=state)
+        record = {"approval": approval.model_dump(mode="json"), "checkpoint": checkpoint}
+        if self._db.put_if_version(f"approval:{approval.approval_id}", record, None).committed:
             self._ids.append(approval.approval_id)
-        return created
 
-    def decide(self, approval: Approval, expected: str = "PENDING") -> bool:
-        """Record a decision only if the approval is still in the expected status."""
-        value, version = self._db.get_versioned(f"approval:{approval.approval_id}")
-        if value["status"] != expected:
+    def load(self, checkpoint_id, config=None, tenant_id=None, **kwargs):
+        raw = self._db.get(f"approval:{checkpoint_id}")
+        if raw is None or raw["checkpoint"]["tenant_id"] != tenant_id:
+            return None
+        return dict(raw["checkpoint"], status=raw["approval"]["status"])
+
+    def decide(self, checkpoint_id, status, decided_by, config=None, **kwargs) -> bool:
+        """PENDING -> APPROVED | REJECTED as one compare-and-set."""
+        raw, version = self._db.get_versioned(f"approval:{checkpoint_id}") or (None, None)
+        if raw is None or raw["approval"]["status"] != "PENDING":
             return False
-        return self._db.put_if_version(f"approval:{approval.approval_id}",
-                                       approval.model_dump(mode="json"), version).committed
+        decided = {"approval": dict(raw["approval"], status=status, decided_by=decided_by),
+                   "checkpoint": dict(raw["checkpoint"], status=status)}
+        return self._db.put_if_version(f"approval:{checkpoint_id}", decided, version).committed
 
     def get(self, tenant_id: str, approval_id: str) -> Optional[Approval]:
         raw = self._db.get(f"approval:{approval_id}")
-        approval = Approval.model_validate(raw) if raw else None
+        approval = Approval.model_validate(raw["approval"]) if raw else None
         return approval if approval and approval.tenant_id == tenant_id else None
 
     def list(self, tenant_id: str, status: Optional[str] = None) -> List[Approval]:

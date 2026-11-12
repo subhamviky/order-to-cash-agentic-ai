@@ -2,7 +2,7 @@
 the tool contract, and exposed to external agents over MCP (tools/mcp_server.py)."""
 from typing import Dict
 
-from e2a_base import PhysicalOutcome
+from e2a import PhysicalOutcome
 
 from ..services.stores import InventoryStore, OrderStore
 from .services import LocalTool
@@ -28,6 +28,6 @@ def local_tools(inventory: InventoryStore, orders: OrderStore) -> Dict[str, Loca
                 "order": order.model_dump(mode="json") if order else None}
 
     return {"check_stock": LocalTool("check_stock", check_stock, ("sku",)),
-            "reserve_stock": LocalTool("reserve_stock", reserve_stock, ("sku", "quantity")),
-            "release_stock": LocalTool("release_stock", release_stock, ("sku", "quantity")),
+            "reserve_stock": LocalTool("reserve_stock", reserve_stock, ("sku", "quantity"), material=True),
+            "release_stock": LocalTool("release_stock", release_stock, ("sku", "quantity"), material=True),
             "get_order": LocalTool("get_order", get_order, ("order_id",))}

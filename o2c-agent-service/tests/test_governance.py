@@ -6,7 +6,7 @@ from e2a_simulated_llm import SimulatedLLMService
 from conftest import ask
 from o2c_agent_service.services.assistant import Forbidden
 from o2c_agent_service.services.llm import build_o2c_llm
-from o2c_agent_service.tools.gateway import ToolDenied
+from e2a import ModifyAccess, RequestContext, ToolDenied
 
 
 def test_prompt_injection_is_refused_before_any_model_call(assistant):
@@ -33,8 +33,11 @@ def test_a_viewer_cannot_place_orders(assistant, settlement):
 
 
 def test_agents_can_only_use_their_own_tools(assistant):
+    """E2A gives each agent io_modify limited by the governance tool_policy."""
+    ctx = RequestContext.begin(tenant_id="acme", config=assistant.config, idempotency_key="k")
+    finance = ModifyAccess(ctx, assistant.config, allowed=assistant.governance.tool_policy["FinanceAgent"])
     with pytest.raises(ToolDenied):
-        assistant.tools.call("FinanceAgent", "submit_settlement", {"json": {}}, "acme", idempotency_key="k")
+        finance.call("submit_settlement", {"json": {}})
 
 
 def test_the_token_budget_stops_further_model_use(assistant, settlement):

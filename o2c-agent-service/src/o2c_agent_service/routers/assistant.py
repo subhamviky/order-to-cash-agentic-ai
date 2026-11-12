@@ -1,6 +1,5 @@
 """HTTP surface. Caller identity comes from headers (X-Tenant-Id, X-User-Id, X-User-Role);
 authentication in front of it (Cloud Run IAM / an identity-aware proxy) is backlog."""
-import inspect
 from typing import List, Optional
 
 from e2a_base import NFRViolationError
@@ -74,7 +73,4 @@ def usage(request: Request) -> dict:
 @router.post("/mcp")
 async def mcp(payload: dict, request: Request, x_tenant_id: str = Header("")) -> dict:
     """MCP (JSON-RPC 2.0): tools/list and tools/call for the read-only O2C tools."""
-    answer = _assistant(request).mcp.serve(payload, _assistant(request).config, tenant_id=x_tenant_id)
-    if inspect.isawaitable(answer.get("result")):
-        answer["result"] = await answer["result"]
-    return answer
+    return await _assistant(request).mcp.serve_async(payload, _assistant(request).config, tenant_id=x_tenant_id)

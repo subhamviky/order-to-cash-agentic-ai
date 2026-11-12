@@ -1,11 +1,13 @@
-"""Hybrid retrieval over the O2C policies on E2A's RAG contracts.
+"""Hybrid retrieval over the O2C policies on E2A's RAG contracts (v1.2: shared ports).
 
-Write side: PolicyIndexingPipeline(BaseIndexingPipeline) — ingest() is inherited; chunks
-are policy paragraphs, written idempotently per chunk id into a tenant namespace.
-Read side: PolicyRAGPipeline(BaseRAGPipeline) — retrieve() is inherited; the index search
-fuses a keyword leg (BM25) and a vector leg (hashed bag-of-words embeddings, no model
-needed) with reciprocal rank fusion, and the re-ranking keeps the best k with a governed
-DSA TOP_K call. _evaluate_answer measures groundedness against what was retrieved.
+The two sides share two ports, so they cannot drift (E2A design note 01, option C):
+  HashedBagOfWords (BaseEmbeddingModel)  one deterministic embedding for documents and queries
+  PolicyIndex      (BaseVectorIndex)     one namespace per tenant; search() fuses a keyword
+                                         leg (BM25) and a vector leg with reciprocal rank fusion
+Write side: PolicyIndexingPipeline(BaseIndexingPipeline) supplies only the chunking.
+Read side: PolicyRAGPipeline(BaseRAGPipeline) supplies the re-ranking (a governed DSA TOP_K
+call) and the groundedness check, which callers reach through the public evaluate_answer().
+policy_rag() composes both into E2A's RAGPipeline facade.
 """
 import hashlib
 import math
@@ -15,7 +17,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from capability_oriented_dsa import DSAFacade, SequenceState
-from e2a_base import BaseIndexingPipeline, BaseRAGPipeline
+from e2a import BaseEmbeddingModel, BaseIndexingPipeline, BaseRAGPipeline, BaseVectorIndex, RAGPipeline
 
 POLICY_ID = re.compile(r"\bPOL-[A-Z]+-\d+\b")
 WORD = re.compile(r"[a-z0-9]+")
@@ -49,19 +51,71 @@ def embed(text: str) -> List[float]:
     return [v / norm for v in vector]
 
 
-class PolicyIndex:
-    """In-memory index, one namespace per tenant: {chunk_id: chunk}."""
+class HashedBagOfWords(BaseEmbeddingModel):
+    model_id = f"hashed-bow-{DIM}"
+
+    def embed_documents(self, texts):
+        return [embed(t) for t in texts]
+
+    def embed_query(self, text):
+        return embed(text)
+
+
+class PolicyIndex(BaseVectorIndex):
+    """In-memory index, one namespace per tenant: {chunk_id: chunk}. Upsert by chunk id,
+    so a replayed ingest is safe."""
+    RRF_K = 60
 
     def __init__(self) -> None:
         self.namespaces: Dict[str, Dict[str, dict]] = {}
 
-    def namespace(self, tenant_id: str) -> Dict[str, dict]:
-        return self.namespaces.setdefault(f"policies_{tenant_id}", {})
+    def upsert(self, namespace, chunks, vectors):
+        space = self.namespaces.setdefault(namespace, {})
+        for chunk, vector in zip(chunks, vectors):
+            meta = chunk["metadata"]
+            space[meta["chunk_id"]] = {**meta, "text": chunk["text"], "vector": vector,
+                                       "terms": Counter(tokens(chunk["text"]))}
+
+    def delete(self, namespace, doc_id):
+        space = self.namespaces.get(namespace, {})
+        for chunk_id in [c for c, v in space.items() if v["doc_id"] == doc_id]:
+            del space[chunk_id]
+
+    def search(self, namespace, query_text, query_vector, top_k):
+        chunks = list(self.namespaces.get(namespace, {}).values())
+        query_terms = tokens(query_text)
+        if not chunks or not query_terms:
+            return []
+        # keyword leg: BM25
+        n, avg = len(chunks), sum(sum(c["terms"].values()) for c in chunks) / len(chunks)
+        df = Counter(t for c in chunks for t in set(c["terms"]))
+
+        def bm25(c):
+            length, score = sum(c["terms"].values()), 0.0
+            for t in query_terms:
+                f = c["terms"].get(t, 0)
+                if f:
+                    idf = math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5))
+                    score += idf * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * length / avg))
+            return score
+        # vector leg: the query vector comes from the same embedding model as the documents
+        keyword = {c["chunk_id"]: bm25(c) for c in chunks}
+        vector = {c["chunk_id"]: sum(a * b for a, b in zip(query_vector, c["vector"])) for c in chunks}
+        candidates = [c for c in chunks if keyword[c["chunk_id"]] > 0]   # no shared term, no evidence
+        rank_k = {cid: r for r, cid in enumerate(sorted(keyword, key=lambda c: -keyword[c]), 1)}
+        rank_v = {cid: r for r, cid in enumerate(sorted(vector, key=lambda c: -vector[c]), 1)}
+        hits = [{"chunk_id": c["chunk_id"], "policy_id": c["policy_id"], "text": c["text"],
+                 "score": 1 / (self.RRF_K + rank_k[c["chunk_id"]]) + 1 / (self.RRF_K + rank_v[c["chunk_id"]]),
+                 "keyword": round(keyword[c["chunk_id"]], 3), "vector": round(vector[c["chunk_id"]], 3)}
+                for c in candidates]
+        return sorted(hits, key=lambda h: -h["score"])[:top_k]
 
 
 class PolicyIndexingPipeline(BaseIndexingPipeline):
-    def __init__(self, index: PolicyIndex) -> None:
-        self.index = index
+    namespace_prefix = "policies"
+
+    def __init__(self, model: BaseEmbeddingModel, index: BaseVectorIndex) -> None:
+        self.embedding_model, self.vector_index = model, index
 
     def _chunk_documents(self, document, config=None, **kwargs):
         chunks = []
@@ -75,23 +129,8 @@ class PolicyIndexingPipeline(BaseIndexingPipeline):
             raise ValueError(f"{document['id']}: no policy paragraphs")
         return chunks
 
-    def _embed_documents(self, texts, config=None, **kwargs):
-        return [embed(t) for t in texts]
-
-    def _write_index(self, chunks, vectors, config=None, tenant_id=None, **kwargs):
-        namespace = self.index.namespace(tenant_id)
-        for chunk, vector in zip(chunks, vectors):          # upsert by chunk id: replay-safe
-            meta = chunk["metadata"]
-            namespace[meta["chunk_id"]] = {**meta, "text": chunk["text"], "vector": vector,
-                                           "terms": Counter(tokens(chunk["text"]))}
-
-    def _delete_from_index(self, doc_id, config=None, tenant_id=None, **kwargs):
-        namespace = self.index.namespace(tenant_id)
-        for chunk_id in [c for c, v in namespace.items() if v["doc_id"] == doc_id]:
-            del namespace[chunk_id]
-
     def _handle_error(self, error, document, config=None, **kwargs):
-        kwargs.get("failed_keys", []).append(document.get("id"))
+        pass                                # the base already lists the document in failed_keys
 
 
 def load_knowledge(folder: Path) -> List[dict]:
@@ -100,40 +139,11 @@ def load_knowledge(folder: Path) -> List[dict]:
 
 
 class PolicyRAGPipeline(BaseRAGPipeline):
-    RRF_K = 60
+    namespace_prefix = "policies"
 
-    def __init__(self, index: PolicyIndex) -> None:
-        self.index = index
+    def __init__(self, model: BaseEmbeddingModel, index: BaseVectorIndex) -> None:
+        self.embedding_model, self.vector_index = model, index
         self.dsa = DSAFacade()
-
-    def _search_index(self, query_text, query_vector, config=None, tenant_id=None, **kwargs):
-        chunks = list(self.index.namespace(tenant_id).values())
-        query_terms = tokens(query_text)
-        if not chunks or not query_terms:
-            return []
-        # keyword leg: BM25
-        n, avg = len(chunks), sum(sum(c["terms"].values()) for c in chunks) / len(chunks)
-        df = Counter(t for c in chunks for t in set(c["terms"]))
-        def bm25(c):
-            length, score = sum(c["terms"].values()), 0.0
-            for t in query_terms:
-                f = c["terms"].get(t, 0)
-                if f:
-                    idf = math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5))
-                    score += idf * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * length / avg))
-            return score
-        # vector leg: the base passes a provider placeholder, so the query is embedded here
-        # with the same function the indexing pipeline used for the documents
-        qv = embed(query_text)
-        keyword = {c["chunk_id"]: bm25(c) for c in chunks}
-        vector = {c["chunk_id"]: sum(a * b for a, b in zip(qv, c["vector"])) for c in chunks}
-        candidates = [c for c in chunks if keyword[c["chunk_id"]] > 0]   # no shared term, no evidence
-        rank_k = {cid: r for r, cid in enumerate(sorted(keyword, key=lambda c: -keyword[c]), 1)}
-        rank_v = {cid: r for r, cid in enumerate(sorted(vector, key=lambda c: -vector[c]), 1)}
-        return [{"chunk_id": c["chunk_id"], "policy_id": c["policy_id"], "text": c["text"],
-                 "score": 1 / (self.RRF_K + rank_k[c["chunk_id"]]) + 1 / (self.RRF_K + rank_v[c["chunk_id"]]),
-                 "keyword": round(keyword[c["chunk_id"]], 3), "vector": round(vector[c["chunk_id"]], 3)}
-                for c in candidates]
 
     def _rerank(self, results, config=None, **kwargs):
         if not results:
@@ -159,3 +169,9 @@ class PolicyRAGPipeline(BaseRAGPipeline):
             if cited and words and len(words & set().union(*(retrieved[p] for p in cited))) / len(words) >= 0.6:
                 grounded += 1
         return grounded / len(sentences)
+
+
+def policy_rag() -> RAGPipeline:
+    """Both sides over one embedding model and one index (refused if the models differ)."""
+    model, index = HashedBagOfWords(), PolicyIndex()
+    return RAGPipeline(PolicyIndexingPipeline(model, index), PolicyRAGPipeline(model, index))

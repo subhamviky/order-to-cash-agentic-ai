@@ -4,7 +4,9 @@ run_pipeline() (inherited, public) runs the seven fixed stages in order and stop
 first failure:
   static_security       secret patterns in the service's files
   test_execution        pytest
-  scaffold_compliance   capacity equation + Single Public Entry Point Rule (AST check)
+  scaffold_compliance   capacity equation + E2A's Governed Entry Point rules (e2a.conformance,
+                        strict: R1 framework-owned method overridden, R2 protected hook called
+                        from outside, D1 deprecated hook)
   ragas_gate            golden questions: right policy retrieved AND a grounded answer
   artifact_compilation  byte-compiles the package (the image is built by the Dockerfile)
   dynamic_security      red-team prompts against the running assistant (in-process)
@@ -12,7 +14,6 @@ first failure:
 Usage:  poetry run python -m o2c_agent_service.release.gate [--skip-tests] [--report FILE]
 """
 import argparse
-import ast
 import compileall
 import json
 import re
@@ -30,13 +31,6 @@ ROOT = Path(__file__).resolve().parents[3]
 SECRETS = [re.compile(p) for p in (r"AKIA[0-9A-Z]{16}", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
                                    r"gh[pousr]_[A-Za-z0-9]{36}", r"AIza[0-9A-Za-z_-]{35}",
                                    r"(?i)(api[_-]?key|password|secret)\s*[:=]\s*['\"][^'\"]{8,}['\"]")]
-CORE = {"BaseAgent": {"run"}, "BaseWorkflow": {"execute"}, "BaseRAGPipeline": {"retrieve"},
-        "BaseIndexingPipeline": {"ingest"}, "BaseToolService": {"execute"}, "RestToolService": {"execute"},
-        "BaseMCPServer": {"serve", "wrap_api_as_tool"}, "BaseGovernanceFramework": {"enforce_governance_gate",
-        "redact_response"}, "BaseValidationService": {"validate"}, "BasePipeline": {"run_pipeline"}}
-ALLOWED_PUBLIC = {"get_endpoint"}            # abstract PUBLIC hooks of BaseToolService
-
-
 def build_assistant() -> O2CAssistant:
     return O2CAssistant(ROOT, build_o2c_llm(), "http://settlement.test", "http://reconciliation.test",
                         FakeSettlementService().transport(), FakeReconciliationService().transport())
@@ -47,6 +41,7 @@ class O2CReleaseGate(BasePipeline):
         super().__init__()
         self.root, self.run_tests = Path(root), run_tests
         self.required_artifact_matrix = ["o2c-agent-service"]
+        self.conformance_paths = (str(self.root / "src"),)
         self.evidence = {}
 
     def _files(self, *patterns):
@@ -70,24 +65,11 @@ class O2CReleaseGate(BasePipeline):
         return done.returncode == 0
 
     def _verify_scaffold_contracts(self, config, **kwargs) -> bool:
-        violations = []
-        for path in (self.root / "src").rglob("*.py"):
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if not isinstance(node, ast.ClassDef):
-                    continue
-                bases = {getattr(b, "id", getattr(b, "attr", "")) for b in node.bases} & set(CORE)
-                if not bases:
-                    continue
-                owned = set().union(*(CORE[b] for b in bases))
-                for item in node.body:
-                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        name = item.name
-                        public = not name.startswith("_")
-                        mangled = name.startswith("__") and not name.endswith("__")
-                        if name in owned or mangled or (public and name not in ALLOWED_PUBLIC):
-                            violations.append(f"{path.name}:{node.name}.{name}")
-        self.evidence["entry_point_violations"] = violations
-        return not violations
+        """E2A's default check (e2a.conformance) over src/, strict: this service has no
+        R2 or D1 findings to tolerate."""
+        ok = super()._verify_scaffold_contracts(config, conformance_strict=True, **kwargs)
+        self.evidence["entry_point_findings"] = [str(f) for f in self.conformance_findings]
+        return ok
 
     def _run_rag_eval(self, config, **kwargs) -> float:
         assistant = build_assistant()

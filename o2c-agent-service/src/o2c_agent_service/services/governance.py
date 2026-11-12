@@ -1,21 +1,24 @@
-"""E2A BaseGovernanceFramework for o2c-agent-service, driven by policies/governance.yaml.
+"""E2A v1.2 governance for o2c-agent-service: ordered stages built from
+policies/governance.yaml (E2A design note 04).
 
-enforce_governance_gate() (inherited, public) runs: capacity admission -> token budget ->
-human approval (dehydrates the workflow) -> semantic firewall. redact_response() (inherited,
-public) masks the egress. This class supplies only the protected hooks.
+enforce_governance_gate() and redact_response() (inherited, public) run the stages. Every
+agent of the workflow passes them: the screening stages before it reads anything,
+approval once the order is priced, redaction on egress. tool_policy is the per-agent
+tool allow-list that E2A applies to each agent's io_read / io_modify. Every refusal is
+typed (code, stage, reason, retryable). This class supplies only the policy data.
 """
-import re
-import threading
-import uuid
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import yaml
-from e2a_base import BaseGovernanceFramework
+from e2a import (ApprovalStage, BaseGovernanceFramework, CapacityStage, FirewallStage, GovernanceRefusal,
+                 InflightLimiter, IngressStage, RedactionStage, SandboxStage, TokenBudgetStage, compile_redactions,
+                 redact_text)
 
-from ..models.schemas import Approval, OrderRequest
-from .stores import ApprovalStore
+# which agent serves an intent: the entitlement stage checks the caller's role for it
+AGENT_FOR = {"PLACE_ORDER": "OrderExecutionAgent", "ORDER_STATUS": "FinanceAgent",
+             "PAYMENT_EXCEPTIONS": "FinanceAgent", "POLICY_QUESTION": "KnowledgeAgent"}
 
 
 class GovernancePolicy:
@@ -28,79 +31,59 @@ class GovernancePolicy:
         self.approval_threshold = Decimal(data["approval"]["threshold"])
         self.approver_role: str = data["approval"]["approver_role"]
         self.four_eyes: bool = bool(data["approval"]["four_eyes"])
-        self.injection = [re.compile(p, re.I) for p in data["firewall"]["injection_patterns"]]
+        self.injection_patterns: List[str] = data["firewall"]["injection_patterns"]
         self.max_query_chars = int(data["firewall"]["max_query_chars"])
-        self.redaction = [(r["name"], re.compile(r["pattern"]), r["mask"]) for r in data["redaction"]]
+        self.redaction = compile_redactions(data["redaction"])
         self.max_inflight = int(data["capacity"]["max_inflight"])
         self.max_token_budget = float(data["capacity"]["max_token_budget"])
 
     def redact(self, text: str) -> tuple:
-        found = []
-        for name, pattern, mask in self.redaction:
-            text, count = pattern.subn(mask, text)
-            if count:
-                found.append(name)
-        return text, found
+        return redact_text(text, self.redaction)
 
 
-class FirewallViolation(PermissionError):
-    """The request was refused by the semantic firewall."""
+class EntitlementRefusal(GovernanceRefusal, PermissionError):
+    code = "ENTITLEMENT"
+
+
+class EntitlementStage(IngressStage):
+    """ABAC: the caller's role must be entitled to the agent that serves the request's
+    intent (before routing: the RouterAgent). A viewer asking for an order is refused
+    before any order agent, model call or tool is reached."""
+    name = "entitlement"
+
+    def __init__(self, policy: GovernancePolicy) -> None:
+        self.policy = policy
+
+    def check(self, state, ctx, messages):
+        agent = AGENT_FOR.get(state.get("intent"), "RouterAgent")
+        if state.get("role") not in self.policy.entitlements.get(agent, []):
+            raise EntitlementRefusal(f"role '{state.get('role')}' may not use {agent}", self.name)
+        return state
 
 
 class O2CGovernance(BaseGovernanceFramework):
-    def __init__(self, policy: GovernancePolicy, approvals: ApprovalStore) -> None:
-        self.policy, self.approvals = policy, approvals
-        self.inflight = 0
-        self._lock = threading.Lock()
+    def __init__(self, policy: GovernancePolicy, breakers=()) -> None:
+        self.policy = policy
+        self.limiter = InflightLimiter(policy.max_inflight)       # requests bracket themselves with slot()
+        self.breakers = list(breakers)
 
-    # Callers bracket a request with these so admission control sees real load.
-    def __enter__(self):
-        with self._lock:
-            self.inflight += 1
-        return self
+    @property
+    def tool_policy(self) -> Dict[str, List[str]]:
+        return self.policy.tools
 
-    def __exit__(self, *exc):
-        with self._lock:
-            self.inflight -= 1
-
-    def _check_execution_capacity(self, state, io_config, config=None, **kwargs) -> bool:
-        return self.inflight <= self.policy.max_inflight and self._evaluate_dependency_health(config, **kwargs)
-
-    def _evaluate_dependency_health(self, config=None, **kwargs) -> bool:
-        breakers = (config or {}).get("dependency_breakers", [])
-        return all(b.state != "OPEN" for b in breakers)
-
-    def _execute_semantic_firewall(self, state, config, **kwargs) -> Dict[str, Any]:
-        query = str(state.get("query", ""))
-        if len(query) > self.policy.max_query_chars:
-            raise FirewallViolation("request too long")
-        for pattern in self.policy.injection:
-            if pattern.search(query):
-                raise FirewallViolation("request refused by the semantic firewall (prompt injection)")
-        state["query"], found = self.policy.redact(query)
-        if found:
-            state["redactions"] = sorted(set(state.get("redactions", [])) | set(found))
-        return state
-
-    def _redact_output_fields(self, state, response, config=None, **kwargs) -> Dict[str, Any]:
-        if isinstance(response, dict) and isinstance(response.get("text"), str):
-            response["text"], _ = self.policy.redact(response["text"])
-        return response
-
-    def _verify_sandbox_profile(self, config, **kwargs) -> None:
-        if (config or {}).get("require_sandbox") and not (config or {}).get("sandbox_profile"):
-            raise PermissionError("MCP tool execution requires a sandboxed runtime")
-
-    def _circuit_breaker(self, failures: int, config, **kwargs) -> bool:
-        return failures >= int((config or {}).get("fail_max", 5))
-
-    def _dehydrate_state_to_perimeter(self, state, correlation_id, tenant_id, config) -> None:
-        """Persist the paused workflow; it resumes when an approver decides (E2A human-in-the-loop)."""
-        snapshot = {k: v for k, v in state.items()
-                    if k in ("tenant_id", "user_id", "role", "query", "intent", "order_request", "amount")}
-        approval = Approval(approval_id=f"APR-{uuid.uuid4().hex[:10].upper()}", tenant_id=tenant_id,
-                            requested_by=state["user_id"], order_request=OrderRequest(**state["order_request"]),
-                            amount=Decimal(str(state["amount"])), idempotency_key=state["idempotency_key"],
-                            state=snapshot)
-        self.approvals.put_new(approval)
-        state["approval_id"] = approval.approval_id
+    @property
+    def stages(self) -> list:
+        """Built from the policy on every request, so a policy change applies at once."""
+        self.limiter.limit = self.policy.max_inflight
+        threshold = self.policy.approval_threshold
+        return [
+            CapacityStage(self.limiter, self.breakers),
+            TokenBudgetStage(),                              # ctx.setting('max_token_budget')
+            FirewallStage(self.policy.injection_patterns, self.policy.redaction, fields=("query",),
+                          max_chars=self.policy.max_query_chars),
+            EntitlementStage(self.policy),
+            SandboxStage(),
+            ApprovalStage(required=lambda state, ctx: Decimal(str(state.get("amount") or 0)) > threshold,
+                          reason=f"orders above {threshold} wait for a {self.policy.approver_role}"),
+            RedactionStage(self.policy.redaction, fields=("text",)),
+        ]

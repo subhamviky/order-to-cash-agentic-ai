@@ -57,6 +57,21 @@ Follows E2A Clean Architecture layers:
 - **Business logic:** Service classes (equivalent: BIMP / @Service)
 - **Exposure layer:** FastAPI APIRouter (equivalent: OData Service Binding / @RestController)
 
+## E2A v1.2
+
+The service uses E2A's v1.2 contracts (the proof that the framework improvements work in a real service):
+
+| Concern | Where | E2A |
+|---|---|---|
+| One request, declared steps: route → intake → specialist, one claim | `workflow/o2c_workflow.py` | `BaseWorkflow`, `Steps`, `Step`, `Route` |
+| Human approval: pause, then `resume()` at the paused step, four eyes | `workflow/o2c_workflow.py`, `services/stores.py` (`ApprovalStore`) | `ApprovalStage`, `resume`, `BaseCheckpointStore` |
+| Capacity, token budget, firewall, entitlement, approval, redaction | `services/governance.py` | governance stages, typed refusals, `tool_policy` |
+| Each agent hook receives only what it declares (`state`, `ctx`, `io_read`, `io_modify`, …) | `agents/` | BOPF-style contract |
+| Reads and payments | `tools/services.py`, `tools/local.py` | `io_read` / `io_modify`, `material` tools |
+| Unknown payment outcomes | `services/recovery.py` | `BaseReconciliationService` |
+| Policy answers | `rag/policy_rag.py` | `RAGPipeline`, embedding and index ports, `evaluate_answer` |
+| Release gate: the Governed Entry Point rules, strict | `release/gate.py` | `e2a.conformance` |
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE)
