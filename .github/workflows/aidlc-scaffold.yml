@@ -14,13 +14,13 @@ on:
       a2c_ref:
         description: "a2c-framework tag to build with"
         required: true
-        default: "v1.1.2"
+        default: "v1.2.0"
 
 jobs:
   scaffold:
     permissions:
       contents: write
-    uses: subhamviky/a2c-framework/.github/workflows/aidlc-scaffold.yml@v1.1.2
+    uses: subhamviky/a2c-framework/.github/workflows/aidlc-scaffold.yml@v1.2.0
     with:
       request: ${{ inputs.request }}
       a2c_ref: ${{ inputs.a2c_ref }}
