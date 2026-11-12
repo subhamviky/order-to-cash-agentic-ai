@@ -1,3 +1,12 @@
+> **Architectural spike: historical.** This branch preserves the spike as it was built; the tag
+> `spike-v1` points to the untouched snapshot. The spike surfaced the patterns and gaps that led
+> to the [E2A framework family](https://github.com/subhamviky/e2a-framework). Its text below
+> (phase badges, deployment and "production-grade" statements) describes the spike at that time
+> and is not maintained.
+>
+> **The completed project, rebuilt on the frameworks, is on
+> [`main`](https://github.com/subhamviky/order-to-cash-agentic-ai/tree/main).**
+
 # Order-to-Cash Agentic AI Platform
 
 > **Enterprise-grade, production-ready Agentic AI system** built on AWS — translating 13+ years of financial settlement architecture ($350M+ transaction volumes) into a cloud-native, AI-native platform.
