@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.venv/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Local vector stores & caches
+chroma_db/
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.DS_Store
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+*.zip
+*.tar.gz
+*.whl

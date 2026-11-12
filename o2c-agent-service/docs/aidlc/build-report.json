@@ -1,0 +1,43 @@
+{
+  "success": true,
+  "phase_reached": "E2A_VERIFIED",
+  "project_root": "/home/runner/work/order-to-cash-agentic-ai/order-to-cash-agentic-ai/o2c-agent-service",
+  "critic_score": 1.0,
+  "g2c_files": [
+    "/home/runner/work/order-to-cash-agentic-ai/order-to-cash-agentic-ai/o2c-agent-service/src/o2c_agent_service/agents/router_agent.py"
+  ],
+  "pipeline_stages": {
+    "static_security": "PASSED",
+    "test_execution": "PASSED",
+    "scaffold_compliance": "PASSED",
+    "ragas_gate": "PASSED",
+    "artifact_compilation": "PASSED",
+    "dynamic_security": "PASSED",
+    "deployment_rollout": "PASSED_BLUE_GREEN"
+  },
+  "stage_notes": {
+    "static_security": "checked: secret patterns in every project file; terraform fmt when terraform is installed",
+    "test_execution": "checked only with --run-tests; otherwise the project CI runs the tests",
+    "scaffold_compliance": "checked: required artifacts exist; generated agents keep the inherited entry point",
+    "ragas_gate": "not applicable: no RAG pipeline in a build",
+    "artifact_compilation": "not applicable: the project CI compiles",
+    "dynamic_security": "not applicable: the project CI scans the image (Trivy)",
+    "deployment_rollout": "not performed: no deployment in a local build"
+  },
+  "findings": [],
+  "errors": [],
+  "llm_usage": {
+    "calls": 8,
+    "input_tokens": 6869,
+    "output_tokens": 4651,
+    "cost_usd": 0.03456,
+    "by_rule": {
+      "g2c:e2a_inherited": 1,
+      "a2c:requirements": 1,
+      "a2c:iac": 1,
+      "a2c:codegen": 3,
+      "a2c:cicd": 1,
+      "a2c:critic": 1
+    }
+  }
+}
