@@ -1,6 +1,7 @@
 # Multi-stage Python build — non-root runtime image
 FROM python:3.12-slim AS builder
-WORKDIR /build
+# Build where the runtime runs: the venv's scripts (uvicorn) hard-code their interpreter path
+WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/* && pip install "poetry>=2.0,<3"
 COPY pyproject.toml poetry.lock* ./
@@ -10,7 +11,7 @@ RUN poetry config virtualenvs.in-project true \
 FROM python:3.12-slim AS runtime
 WORKDIR /app
 RUN groupadd -r appgroup && useradd -r -g appgroup -u 1001 appuser
-COPY --from=builder /build/.venv /app/.venv
+COPY --from=builder /app/.venv /app/.venv
 COPY src/ /app/src/
 COPY policies/ /app/policies/
 COPY knowledge/ /app/knowledge/
