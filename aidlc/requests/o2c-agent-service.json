@@ -1,0 +1,37 @@
+{
+  "tenant_id": "o2c",
+  "context": {
+    "source": "inline",
+    "project_name": "o2c-agent-service",
+    "package_name": "o2c_agent_service",
+    "runtime": "python",
+    "runtime_version": "3.12",
+    "build_tool": "poetry",
+    "platform": "gcp",
+    "project_type": "fastapi_microservice",
+    "license": "Apache-2.0",
+    "dependencies": [
+      "e2a-framework @ git+https://github.com/subhamviky/e2a-framework.git@v1.1.0",
+      "capability-oriented-dsa @ git+https://github.com/subhamviky/capability-oriented-dsa.git@v0.2.0",
+      "httpx>=0.27",
+      "pyyaml>=6.0"
+    ],
+    "dev_dependencies": []
+  },
+  "harness": {
+    "generator_type": "e2a_inherited",
+    "agent_name": "RouterAgent",
+    "abstract_class_source": "package",
+    "package_name": "e2a_base",
+    "domain": "order-to-cash"
+  },
+  "prompt": {
+    "user_prompt": "Natural-language front door of the Order-to-Cash landscape: a router agent hands each request to a specialist agent in an E2A workflow (order execution, finance status, policy knowledge); material actions run only through governed tools with typed physical outcomes against the settlement and reconciliation services, large orders wait for human approval, and policy answers are grounded by hybrid retrieval and checked by release gates."
+  },
+  "a2c_sdlc": {
+    "enabled": true,
+    "project_type": "FastAPI Microservice",
+    "target_cloud": "gcp",
+    "mandatory_nfrs": ["Audit", "HumanApproval"]
+  }
+}
