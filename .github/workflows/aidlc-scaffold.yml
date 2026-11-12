@@ -13,7 +13,7 @@ on:
       a2c_ref:
         description: "a2c-framework tag to build with"
         required: true
-        default: "v1.1.0"
+        default: "v1.1.1"
 
 permissions:
   contents: write
@@ -25,8 +25,8 @@ jobs:
       REQUEST: ${{ inputs.request }}
       A2C_REF: ${{ inputs.a2c_ref }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Set up Java (the G2C critic compiles generated Java)

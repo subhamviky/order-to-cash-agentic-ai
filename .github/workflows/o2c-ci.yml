@@ -15,8 +15,8 @@ jobs:
       run:
         working-directory: o2c-agent-service
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pipx install "poetry>=2.0,<3"
@@ -27,7 +27,7 @@ jobs:
         run: poetry run python -m o2c_agent_service.release.gate --skip-tests --report release-gate-report.json
       - name: Keep the gate report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-gate-report
           path: o2c-agent-service/release-gate-report.json
@@ -38,8 +38,8 @@ jobs:
       run:
         working-directory: o2c-agent-service/infra
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.17.1"
           terraform_wrapper: false
@@ -58,7 +58,7 @@ jobs:
         working-directory: o2c-agent-service
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build the container image (P0 Dockerfile)
         run: docker build -t o2c-agent-service:ci .
       - name: Run it and ask it a policy question

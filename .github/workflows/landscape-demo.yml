@@ -29,15 +29,15 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: o2c
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: subhamviky/financial-settlement-platform
           ref: ${{ inputs.settlement_ref }}
           path: settlement
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: subhamviky/aws-reconciliation-engine
           ref: ${{ inputs.reconciliation_ref }}
@@ -46,7 +46,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pipx install "poetry>=2.0,<3"
