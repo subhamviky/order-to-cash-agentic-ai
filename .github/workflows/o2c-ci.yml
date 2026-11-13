@@ -23,7 +23,7 @@ jobs:
       - run: poetry install --no-interaction
       - name: Tests (settlement-service and reconciliation-service replaced by in-process fakes)
         run: poetry run pytest -q
-      - name: AI-DLC release gate (E2A BasePipeline, seven stages; pytest ran in the step above)
+      - name: AI-DLC release gate (E2A ProjectReleaseGate, seven stages; pytest ran in the step above)
         run: poetry run python -m o2c_agent_service.release.gate --skip-tests --report release-gate-report.json
       - name: Keep the gate report
         if: always()
