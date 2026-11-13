@@ -129,7 +129,7 @@ resource "google_cloud_run_v2_service" "app" {
     service_account = google_service_account.app.email
     scaling {
       min_instance_count = 0
-      max_instance_count = 1 # state is in memory in v1 (src/o2c_agent_service/services/stores.py)
+      max_instance_count = var.max_instance_count # state is in Firestore (firestore.tf), shared by every instance
     }
     containers {
       image = var.image
@@ -151,6 +151,22 @@ resource "google_cloud_run_v2_service" "app" {
       env {
         name  = "RECONCILIATION_API_URL"
         value = var.reconciliation_api_url
+      }
+      env {
+        name  = "O2C_STATE_BACKEND"
+        value = "firestore"
+      }
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "O2C_FIRESTORE_DATABASE"
+        value = google_firestore_database.state.name
+      }
+      env {
+        name  = "O2C_FIRESTORE_COLLECTION"
+        value = var.firestore_collection
       }
       liveness_probe {
         http_get {

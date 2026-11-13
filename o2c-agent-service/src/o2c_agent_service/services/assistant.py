@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from e2a import CapacityRefusal, ResumeRefused
-from e2a_inmemory_adapters import InMemoryIdempotencyStore
 from e2a_simulated_llm import SimulatedLLMService
 
 from ..agents.finance_agent import FinanceAgent
@@ -28,6 +27,7 @@ from ..workflow.o2c_workflow import O2CWorkflow
 from .catalog import Catalog
 from .governance import GovernancePolicy, O2CGovernance
 from .recovery import O2CRecovery
+from .state import state_ports
 from .stores import ApprovalStore, InventoryStore, OrderStore
 from .validation import O2CValidationService
 
@@ -45,16 +45,17 @@ class NotFound(Exception):
 class O2CAssistant:
     def __init__(self, service_root: Path, llm: SimulatedLLMService, settlement_url: str,
                  reconciliation_url: str, settlement_transport=None, reconciliation_transport=None,
-                 config: Optional[Dict] = None) -> None:
+                 config: Optional[Dict] = None, state=None) -> None:
         root = Path(service_root)
         self.catalog = Catalog(root / "policies" / "catalog.yaml")
         self.policy = GovernancePolicy(root / "policies" / "governance.yaml")
         self.llm = llm
-        self.orders, self.approvals = OrderStore(), ApprovalStore()
-        self.inventory = InventoryStore({sku: p.stock for sku, p in self.catalog.products.items()})
+        rows, claims = state or state_ports()     # (BaseTransactionalStore, BaseIdempotencyStore)
+        self.orders, self.approvals = OrderStore(rows), ApprovalStore(rows)
+        self.inventory = InventoryStore({sku: p.stock for sku, p in self.catalog.products.items()}, rows)
         self.governance = O2CGovernance(self.policy)
         self.validation = O2CValidationService(self.policy)
-        self.store = InMemoryIdempotencyStore()
+        self.store = claims
         self.tools = {**local_tools(self.inventory, self.orders),
                       **settlement_tools(settlement_url, settlement_transport),
                       **reconciliation_tools(reconciliation_url, reconciliation_transport)}

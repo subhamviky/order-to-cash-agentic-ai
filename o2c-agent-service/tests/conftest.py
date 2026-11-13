@@ -47,3 +47,14 @@ def no_e2a_v11_adapters():
         yield
     legacy = [str(w.message) for w in seen if "removed in v1.3" in str(w.message)]
     assert not legacy, legacy
+
+
+@pytest.fixture(autouse=True)
+def isolated_firestore_collection(monkeypatch):
+    """With O2C_STATE_BACKEND=firestore (CI runs the whole suite a second time on the Firestore
+    emulator), each test gets its own collection: state is durable, so tests must not share it."""
+    import os
+    import uuid
+    if os.getenv("O2C_STATE_BACKEND") == "firestore":
+        monkeypatch.setenv("O2C_FIRESTORE_COLLECTION", f"o2c-test-{uuid.uuid4().hex[:10]}")
+    yield

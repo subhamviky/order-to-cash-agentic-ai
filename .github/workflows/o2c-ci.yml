@@ -23,6 +23,17 @@ jobs:
       - run: poetry install --no-interaction
       - name: Tests (settlement-service and reconciliation-service replaced by in-process fakes)
         run: poetry run pytest -q
+      - name: Start the Firestore emulator
+        run: |
+          docker run -d --name firestore -p 8085:8085 gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators \
+            gcloud emulators firestore start --host-port=0.0.0.0:8085
+          for _ in $(seq 60); do curl -s -o /dev/null http://127.0.0.1:8085/ && break; sleep 2; done
+      - name: Tests again with the state in Firestore (e2a-adapters), including several instances on one database
+        env:
+          O2C_STATE_BACKEND: firestore
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8085
+          GOOGLE_CLOUD_PROJECT: demo-o2c
+        run: poetry run pytest -q -rs
       - name: AI-DLC release gate (E2A ProjectReleaseGate, seven stages; pytest ran in the step above)
         run: poetry run python -m o2c_agent_service.release.gate --skip-tests --report release-gate-report.json
       - name: Keep the gate report

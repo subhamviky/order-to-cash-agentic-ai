@@ -16,8 +16,28 @@ run "plan_with_mocks" {
   }
 
   assert {
-    condition     = google_cloud_run_v2_service.app.template[0].scaling[0].max_instance_count == 1
-    error_message = "v1 keeps its state in memory: exactly one instance."
+    condition     = google_cloud_run_v2_service.app.template[0].scaling[0].max_instance_count > 1
+    error_message = "State is in Firestore (e2a-adapters), so the service runs more than one instance."
+  }
+
+  assert {
+    condition     = contains([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : "${e.name}=${e.value}"], "O2C_STATE_BACKEND=firestore")
+    error_message = "Every instance must keep its state in Firestore, not in memory."
+  }
+
+  assert {
+    condition     = google_firestore_database.state.type == "FIRESTORE_NATIVE" && google_firestore_database.state.point_in_time_recovery_enablement == "POINT_IN_TIME_RECOVERY_ENABLED"
+    error_message = "The state database is Firestore in Native mode, recoverable (PITR)."
+  }
+
+  assert {
+    condition     = google_firestore_field.ttl.field == "ttl" && google_firestore_field.ttl.collection == "o2c"
+    error_message = "A TTL policy on \"ttl\" garbage-collects the adapters' claims."
+  }
+
+  assert {
+    condition     = google_project_iam_member.firestore.role == "roles/datastore.user"
+    error_message = "The service account reads and writes Firestore documents, nothing more."
   }
 
   assert {

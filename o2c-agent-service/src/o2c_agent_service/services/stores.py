@@ -1,22 +1,22 @@
 """State of this service: orders, stock, approvals.
 
-In-memory, single instance (Cloud Run max_instance_count = 1, see infra/main.tf).
-Every change is a compare-and-set on E2A's InMemoryTransactionalStore, the reference
-adapter of BaseTransactionalStore; a Firestore adapter of the same contract is the
-backlog item that lifts the single-instance limit.
+Every change is a compare-and-set on an E2A BaseTransactionalStore (services/state.py chooses
+it): the in-memory reference adapter for tests and one instance, or e2a-adapters' Firestore
+adapter, durable and shared, so that several Cloud Run instances serve the same orders, stock
+and approvals (design note D-03).
 """
 from decimal import Decimal
 from typing import List, Optional
 
-from e2a import BaseCheckpointStore
+from e2a import BaseCheckpointStore, BaseTransactionalStore
 from e2a_inmemory_adapters import InMemoryTransactionalStore
 
 from ..models.schemas import Approval, Order, OrderRequest
 
 
 class OrderStore:
-    def __init__(self) -> None:
-        self._db = InMemoryTransactionalStore()
+    def __init__(self, db: Optional[BaseTransactionalStore] = None) -> None:
+        self._db = db or InMemoryTransactionalStore()
 
     def create(self, order: Order) -> bool:
         """Insert once: a second create of the same order id changes nothing."""
@@ -37,10 +37,12 @@ class OrderStore:
 class InventoryStore:
     """Available stock per SKU. reserve() and release() are compare-and-set loops."""
 
-    def __init__(self, initial: dict) -> None:
-        self._db = InMemoryTransactionalStore()
+    def __init__(self, initial: dict, db: Optional[BaseTransactionalStore] = None) -> None:
+        self._db = db or InMemoryTransactionalStore()
         for sku, quantity in initial.items():
-            self._db.put(f"stock:{sku}", {"available": quantity})
+            # Create-if-absent: with a shared store every instance starts with this catalog, and
+            # a restart must not reset stock that orders have already reserved.
+            self._db.put_if_version(f"stock:{sku}", {"available": quantity}, None)
 
     def available(self, sku: str) -> int:
         row = self._db.get(f"stock:{sku}")
@@ -68,9 +70,8 @@ class ApprovalStore(BaseCheckpointStore):
     store (BaseWorkflow saves the checkpoint, resume() decides it exactly once), with each
     checkpoint also listed as an Approval for the API."""
 
-    def __init__(self) -> None:
-        self._db = InMemoryTransactionalStore()
-        self._ids: List[str] = []
+    def __init__(self, db: Optional[BaseTransactionalStore] = None) -> None:
+        self._db = db or InMemoryTransactionalStore()
 
     def save(self, checkpoint, config=None, **kwargs) -> None:
         state = checkpoint["state"]
@@ -81,7 +82,18 @@ class ApprovalStore(BaseCheckpointStore):
                             state=state)
         record = {"approval": approval.model_dump(mode="json"), "checkpoint": checkpoint}
         if self._db.put_if_version(f"approval:{approval.approval_id}", record, None).committed:
-            self._ids.append(approval.approval_id)
+            self._index(approval.tenant_id, approval.approval_id)
+
+    def _index(self, tenant_id: str, approval_id: str) -> None:
+        """The tenant's approval ids, in one row appended by compare-and-set: every instance
+        lists the same approvals."""
+        key = f"approval-index:{tenant_id}"
+        while True:
+            value, version = self._db.get_versioned(key) or ({"ids": []}, None)
+            if approval_id in value["ids"]:
+                return
+            if self._db.put_if_version(key, {"ids": value["ids"] + [approval_id]}, version).committed:
+                return
 
     def load(self, checkpoint_id, config=None, tenant_id=None, **kwargs):
         raw = self._db.get(f"approval:{checkpoint_id}")
@@ -104,5 +116,6 @@ class ApprovalStore(BaseCheckpointStore):
         return approval if approval and approval.tenant_id == tenant_id else None
 
     def list(self, tenant_id: str, status: Optional[str] = None) -> List[Approval]:
-        rows = [self.get(tenant_id, approval_id) for approval_id in list(self._ids)]
+        ids = (self._db.get(f"approval-index:{tenant_id}") or {"ids": []})["ids"]
+        rows = [self.get(tenant_id, approval_id) for approval_id in ids]
         return [a for a in rows if a is not None and (status is None or a.status == status)]
