@@ -12,6 +12,7 @@ from e2a import BaseCheckpointStore, BaseTransactionalStore
 from e2a_inmemory_adapters import InMemoryTransactionalStore
 
 from ..models.schemas import Approval, Order, OrderRequest
+from .paged_index import PagedIndex
 
 
 class OrderStore:
@@ -85,15 +86,9 @@ class ApprovalStore(BaseCheckpointStore):
             self._index(approval.tenant_id, approval.approval_id)
 
     def _index(self, tenant_id: str, approval_id: str) -> None:
-        """The tenant's approval ids, in one row appended by compare-and-set: every instance
-        lists the same approvals."""
-        key = f"approval-index:{tenant_id}"
-        while True:
-            value, version = self._db.get_versioned(key) or ({"ids": []}, None)
-            if approval_id in value["ids"]:
-                return
-            if self._db.put_if_version(key, {"ids": value["ids"] + [approval_id]}, version).committed:
-                return
+        """The tenant's approval ids, in a paged index (compare-and-set): every instance lists the
+        same approvals, and no index document outgrows the store's limit."""
+        PagedIndex(self._db, f"approvals:{tenant_id}").append(approval_id)
 
     def load(self, checkpoint_id, config=None, tenant_id=None, **kwargs):
         raw = self._db.get(f"approval:{checkpoint_id}")
@@ -116,6 +111,6 @@ class ApprovalStore(BaseCheckpointStore):
         return approval if approval and approval.tenant_id == tenant_id else None
 
     def list(self, tenant_id: str, status: Optional[str] = None) -> List[Approval]:
-        ids = (self._db.get(f"approval-index:{tenant_id}") or {"ids": []})["ids"]
+        ids = PagedIndex(self._db, f"approvals:{tenant_id}").ids()
         rows = [self.get(tenant_id, approval_id) for approval_id in ids]
         return [a for a in rows if a is not None and (status is None or a.status == status)]
