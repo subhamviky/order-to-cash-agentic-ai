@@ -35,3 +35,15 @@ def assistant(make_assistant):
 
 def ask(assistant, text, role="sales", user="u-sales", key=None):
     return assistant.handle(text, "acme", user, role, key)
+
+
+@pytest.fixture(autouse=True)
+def no_e2a_v11_adapters():
+    """v1.3 preparation (design note V13-01): fail a test that uses E2A's v1.1 adapters, which
+    v1.3 removes. The warning is recorded, not raised: BaseAgent.run() would swallow an error."""
+    import warnings
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        yield
+    legacy = [str(w.message) for w in seen if "removed in v1.3" in str(w.message)]
+    assert not legacy, legacy
