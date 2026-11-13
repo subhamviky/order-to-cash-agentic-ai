@@ -54,6 +54,11 @@ jobs:
       - name: Start settlement-service on :8080
         working-directory: settlement/settlement-service
         run: |
+          E2A="$(sed -n 's:.*<e2a.version>\(.*\)</e2a.version>.*:\1:p' pom.xml)"
+          if [ -n "$E2A" ]; then   # since E2A v1.2.2 settlement-service depends on e2a-java, built from E2A's tag
+            git clone -q --depth 1 --branch "v$E2A" https://github.com/subhamviky/e2a-framework.git "$RUNNER_TEMP/e2a"
+            mvn -B -q -f "$RUNNER_TEMP/e2a/java/pom.xml" install -DskipTests
+          fi
           mvn -B -q package -DskipTests
           nohup java -jar "$(ls target/*.jar | head -1)" > "$RUNNER_TEMP/settlement.log" 2>&1 &
 
