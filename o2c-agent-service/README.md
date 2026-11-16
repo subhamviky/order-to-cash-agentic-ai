@@ -71,6 +71,7 @@ The service uses E2A's v1.2 contracts (the proof that the framework improvements
 | Unknown payment outcomes | `services/recovery.py` | `BaseReconciliationService` |
 | Policy answers | `rag/policy_rag.py` | `RAGPipeline`, embedding and index ports, `evaluate_answer` |
 | Release gate: the Governed Entry Point rules, strict | `release/gate.py` | `e2a.conformance` |
+| Identity at ingress: in Google Cloud the caller (tenant, user, role) comes from the claims API Gateway verified, never from headers; fail-closed | `routers/identity.py`, `infra/identity.tf`, `infra/api-gateway/openapi.yaml` | `e2a_adapters.ingress` (v1.7.4), `ClaimMapIdentityResolver`, the `identity_platform` preset |
 | Order events (`order.placed`, `order.paid`, `order.payment_unknown`, `order.cancelled`, `order.refused`), each committed with its order change and published once to Pub/Sub | `services/events.py`, `services/stores.py` (`OrderStore`), `services/state.py`, `POST /internal/events/publish` (Cloud Scheduler, `infra/events.tf`) | `put_if_version(..., outbox=[...])` (v1.7.3), `BrokerOutboxSweeper`, `PubSubBroker`, `FirestoreLease` |
 
 ## License

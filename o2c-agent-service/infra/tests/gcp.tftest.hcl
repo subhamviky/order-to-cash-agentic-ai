@@ -80,6 +80,15 @@ run "order_events_are_published" {
   }
 }
 
+run "identity_at_ingress" {
+  command = plan
+
+  assert {
+    condition     = contains([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : "${e.name}=${e.value}"], "E2A_IDENTITY_SOURCE=gcp_api_gateway")
+    error_message = "In Google Cloud the caller comes from the claims API Gateway verified, never from headers."
+  }
+}
+
 run "public_access_is_refused" {
   command = plan
 
