@@ -22,9 +22,9 @@ def reconciliation():
 
 @pytest.fixture
 def make_assistant(settlement, reconciliation):
-    def make(llm=None, **config):
+    def make(llm=None, events=None, **config):
         return O2CAssistant(ROOT, llm or build_o2c_llm(), "http://settlement.test", "http://reconciliation.test",
-                            settlement.transport(), reconciliation.transport(), config=config)
+                            settlement.transport(), reconciliation.transport(), config=config, events=events)
     return make
 
 

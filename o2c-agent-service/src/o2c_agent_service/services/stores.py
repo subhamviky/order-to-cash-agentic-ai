@@ -12,20 +12,34 @@ from e2a import BaseCheckpointStore, BaseTransactionalStore
 from e2a_inmemory_adapters import InMemoryTransactionalStore
 
 from ..models.schemas import Approval, Order, OrderRequest
+from .events import DEFAULT_TOPIC, order_event
 from .paged_index import PagedIndex
 
 
 class OrderStore:
-    def __init__(self, db: Optional[BaseTransactionalStore] = None) -> None:
+    """Orders. When the store has an outbox (services/state.py gives it one), every change of
+    status is committed together with its event (services/events.py)."""
+
+    def __init__(self, db: Optional[BaseTransactionalStore] = None, topic: str = DEFAULT_TOPIC) -> None:
         self._db = db or InMemoryTransactionalStore()
+        self.topic = topic
+        self.emits_events = getattr(self._db, "outbox", None) is not None
+
+    def _events(self, order: Order, previous_status: Optional[str]) -> List[dict]:
+        if not self.emits_events or order.status == previous_status:
+            return []
+        event = order_event(order, self.topic)
+        return [event] if event else []
 
     def create(self, order: Order) -> bool:
-        """Insert once: a second create of the same order id changes nothing."""
-        return self._db.put_if_version(f"order:{order.order_id}", order.model_dump(mode="json"), None).committed
+        """Insert once: a second create of the same order id changes nothing (and announces nothing)."""
+        return self._db.put_if_version(f"order:{order.order_id}", order.model_dump(mode="json"), None,
+                                       outbox=self._events(order, None)).committed
 
     def update(self, order: Order) -> None:
         row = self._db.get_versioned(f"order:{order.order_id}")
-        result = self._db.put_if_version(f"order:{order.order_id}", order.model_dump(mode="json"), row[1])
+        result = self._db.put_if_version(f"order:{order.order_id}", order.model_dump(mode="json"), row[1],
+                                         outbox=self._events(order, row[0].get("status")))
         if not result.committed:
             raise RuntimeError(f"order {order.order_id} changed concurrently")
 

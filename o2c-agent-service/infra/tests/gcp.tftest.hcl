@@ -61,6 +61,25 @@ run "plan_with_mocks" {
   }
 }
 
+run "order_events_are_published" {
+  command = plan
+
+  assert {
+    condition     = google_pubsub_topic_iam_member.events_publisher.role == "roles/pubsub.publisher"
+    error_message = "The service publishes order events to the events topic."
+  }
+
+  assert {
+    condition     = google_cloud_scheduler_job.publish_events.http_target[0].http_method == "POST" && length(google_cloud_scheduler_job.publish_events.http_target[0].oidc_token) == 1
+    error_message = "The scheduler calls the publish endpoint with an OIDC identity."
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service_iam_member.scheduler.role == "roles/run.invoker"
+    error_message = "The scheduler's identity may invoke the service, nothing more."
+  }
+}
+
 run "public_access_is_refused" {
   command = plan
 

@@ -74,3 +74,10 @@ def usage(request: Request) -> dict:
 async def mcp(payload: dict, request: Request, x_tenant_id: str = Header("")) -> dict:
     """MCP (JSON-RPC 2.0): tools/list and tools/call for the read-only O2C tools."""
     return await _assistant(request).mcp.serve_async(payload, _assistant(request).config, tenant_id=x_tenant_id)
+
+
+@router.post("/internal/events/publish")
+def publish_events(request: Request) -> dict:
+    """Publish pending order events to the events topic. Cloud Scheduler calls this on a
+    schedule; only the service's invokers (Cloud Run IAM) can reach it."""
+    return _assistant(request).publish_events()

@@ -10,7 +10,7 @@ recover():           an order whose payment outcome is UNKNOWN, through
 from pathlib import Path
 from typing import Dict, Optional
 
-from e2a import CapacityRefusal, ResumeRefused
+from e2a import BrokerOutboxSweeper, CapacityRefusal, ResumeRefused
 from e2a_simulated_llm import SimulatedLLMService
 
 from ..agents.finance_agent import FinanceAgent
@@ -27,7 +27,7 @@ from ..workflow.o2c_workflow import O2CWorkflow
 from .catalog import Catalog
 from .governance import GovernancePolicy, O2CGovernance
 from .recovery import O2CRecovery
-from .state import state_ports
+from .state import event_ports, events_topic, state_ports
 from .stores import ApprovalStore, InventoryStore, OrderStore
 from .validation import O2CValidationService
 
@@ -45,13 +45,16 @@ class NotFound(Exception):
 class O2CAssistant:
     def __init__(self, service_root: Path, llm: SimulatedLLMService, settlement_url: str,
                  reconciliation_url: str, settlement_transport=None, reconciliation_transport=None,
-                 config: Optional[Dict] = None, state=None) -> None:
+                 config: Optional[Dict] = None, state=None, events=None) -> None:
         root = Path(service_root)
         self.catalog = Catalog(root / "policies" / "catalog.yaml")
         self.policy = GovernancePolicy(root / "policies" / "governance.yaml")
         self.llm = llm
         rows, claims = state or state_ports()     # (BaseTransactionalStore, BaseIdempotencyStore)
-        self.orders, self.approvals = OrderStore(rows), ApprovalStore(rows)
+        self.orders, self.approvals = OrderStore(rows, events_topic()), ApprovalStore(rows)
+        # order events: committed with each order change, published by this sweeper (services/events.py)
+        self.broker, lease = events or event_ports()
+        self.events = BrokerOutboxSweeper(rows.outbox, self.broker, lock=lease) if self.orders.emits_events else None
         self.inventory = InventoryStore({sku: p.stock for sku, p in self.catalog.products.items()}, rows)
         self.governance = O2CGovernance(self.policy)
         self.validation = O2CValidationService(self.policy)
@@ -99,6 +102,13 @@ class O2CAssistant:
             raise NotFound(f"order {order_id}")
         self.recovery.reconcile(self._request_config(), tenant_id=tenant_id, order_id=order_id)
         return self.orders.get(tenant_id, order_id)
+
+    def publish_events(self) -> Dict:
+        """Publish the order events committed so far (Cloud Scheduler calls this). One sweeper at
+        a time, under a lease; a second caller is told SKIPPED_LOCKED."""
+        if self.events is None:
+            return {"status": "DISABLED", "published": 0, "failed_keys": []}
+        return self.events.sweep(self.config)
 
     # ------------------------------------------------------------------- helpers
     def _request_config(self) -> Dict:
