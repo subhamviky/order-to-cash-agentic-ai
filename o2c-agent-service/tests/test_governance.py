@@ -50,3 +50,14 @@ def test_admission_control_sheds_load(assistant):
     assistant.policy.max_inflight = 0
     with pytest.raises(NFRViolationError):
         ask(assistant, "What are our standard payment terms?")
+
+
+def test_a_card_is_masked_but_an_identifier_that_contains_digits_is_not():
+    from pathlib import Path
+    from o2c_agent_service.services.governance import GovernancePolicy
+    policy = GovernancePolicy(Path(__file__).resolve().parents[1] / "policies" / "governance.yaml")
+    for card in ("4111 1111 1111 1111", "4111-1111-1111-1111", "4111111111111111"):
+        assert "[CARD]" in policy.redact(f"paid with {card}.")[0]
+    # a settlement UUID whose last groups are all digits is an identifier, not a card number
+    text = "Settlement 5ede915b-5993-44e2-8646-305571460544 is COMPLETED; order ORD-4111111111111111"
+    assert policy.redact(text)[0] == text
