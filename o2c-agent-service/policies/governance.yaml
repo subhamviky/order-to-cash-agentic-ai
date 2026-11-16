@@ -28,8 +28,8 @@ firewall:                      # ingress: requests matching any pattern are refu
   max_query_chars: 500
 
 redaction:                     # ingress and egress: masked before the model or the caller sees them
-  - name: card-number
-    pattern: "\\b(?:\\d[ -]?){13,16}\\b"
+  - name: card-number         # 13-16 digits, never a fragment of a hyphenated or alphanumeric token (a UUID)
+    pattern: "(?<![\\w-])\\d(?:[ -]?\\d){12,15}(?![\\w-])"
     mask: "[CARD]"
   - name: email
     pattern: "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
