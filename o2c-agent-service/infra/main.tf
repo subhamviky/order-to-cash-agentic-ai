@@ -168,6 +168,14 @@ resource "google_cloud_run_v2_service" "app" {
         name  = "O2C_FIRESTORE_COLLECTION"
         value = var.firestore_collection
       }
+      # identity.tf: the caller comes from the claims API Gateway verified
+      dynamic "env" {
+        for_each = local.identity_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       liveness_probe {
         http_get {
           path = var.health_path

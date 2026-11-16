@@ -1,0 +1,60 @@
+# Google Cloud API Gateway configuration for o2c-agent-service (OpenAPI 2.0, the version
+# API Gateway documents for JWT authentication). The gateway verifies Identity Platform tokens
+# and sends the verified claims to the backend in X-Apigateway-Api-Userinfo; the service reads
+# them (routers/identity.py, E2A identity at ingress). Replace PROJECT_ID and CLOUD_RUN_URL.
+#
+#   gcloud api-gateway api-configs create o2c-v1 --api=o2c --openapi-spec=openapi.yaml \
+#     --backend-auth-service-account=GATEWAY_SA@PROJECT_ID.iam.gserviceaccount.com
+#   gcloud api-gateway gateways create o2c --api=o2c --api-config=o2c-v1 --location=REGION
+#
+# Then make GATEWAY_SA the service's only invoker (invoker_members in o2c.tf).
+swagger: "2.0"
+info:
+  title: o2c-agent-service
+  version: "1.0.0"
+schemes: [https]
+produces: [application/json]
+x-google-backend:
+  address: CLOUD_RUN_URL
+securityDefinitions:
+  identity_platform:
+    authorizationUrl: ""
+    flow: implicit
+    type: oauth2
+    x-google-issuer: "https://securetoken.google.com/PROJECT_ID"
+    x-google-jwks_uri: "https://www.googleapis.com/service_accounts/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+    x-google-audiences: "PROJECT_ID"
+security:
+  - identity_platform: []
+paths:
+  /api/v1/assistant:
+    post: {operationId: ask, responses: {"200": {description: OK}}}
+  /api/v1/approvals:
+    get: {operationId: approvals, responses: {"200": {description: OK}}}
+  /api/v1/approvals/{approval_id}/approve:
+    post:
+      operationId: approve
+      parameters: [{name: approval_id, in: path, required: true, type: string}]
+      responses: {"200": {description: OK}}
+  /api/v1/approvals/{approval_id}/reject:
+    post:
+      operationId: reject
+      parameters: [{name: approval_id, in: path, required: true, type: string}]
+      responses: {"200": {description: OK}}
+  /api/v1/orders/{order_id}:
+    get:
+      operationId: getOrder
+      parameters: [{name: order_id, in: path, required: true, type: string}]
+      responses: {"200": {description: OK}}
+  /api/v1/orders/{order_id}/recover:
+    post:
+      operationId: recoverOrder
+      parameters: [{name: order_id, in: path, required: true, type: string}]
+      responses: {"200": {description: OK}}
+  /mcp:
+    post: {operationId: mcp, responses: {"200": {description: OK}}}
+  /health:
+    get:
+      operationId: health
+      security: []
+      responses: {"200": {description: OK}}
