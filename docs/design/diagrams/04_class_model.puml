@@ -1,0 +1,94 @@
+@startuml
+!include ../common/style.puml
+title o2c-agent-service: class model (E2A base classes in teal)
+left to right direction
+set separator none
+package "E2A v1.7.5" #E6F4F5 {
+  abstract class BaseAgent <<E2A>>
+  abstract class BaseWorkflow <<E2A>>
+  abstract class BaseGovernanceFramework <<E2A>>
+  abstract class BaseValidationService <<E2A>>
+  abstract class BaseReconciliationService <<E2A>>
+  abstract class BaseToolService <<E2A>>
+  abstract class BaseCheckpointStore <<E2A>>
+  abstract class BaseMCPServer <<E2A>>
+  abstract class BaseRAGPipeline <<E2A>>
+  class BrokerOutboxSweeper <<E2A>>
+}
+class O2CAssistant {
+  +handle(text, tenant, user, role, key)
+  +approve(id, tenant, user, role)
+  +reject(id, tenant, user, role)
+  +recover(order_id, tenant)
+  +publish_events()
+}
+class O2CWorkflow {
+  _build_workflow(): route, intake, act
+  _generate_idempotency_key()
+  _request_fingerprint()
+  _authorize_decision()
+}
+class RouterAgent
+class OrderIntakeAgent
+class OrderExecutionAgent {
+  _prepare(): price
+  _act(io_modify): credit, reserve, settle
+}
+class FinanceAgent {
+  _prepare(io_read): facts
+  _evaluate_output(): no unsupported claims
+}
+class KnowledgeAgent {
+  _prepare(): retrieve
+  _evaluate_output(): groundedness
+}
+class O2CGovernance {
+  stages
+  tool_policy
+}
+class EntitlementStage
+class O2CValidationService
+class O2CRecovery
+class HttpJsonTool
+class LocalTool
+class O2CMCPServer
+class PolicyRAGPipeline
+class OrderStore
+class InventoryStore
+class ApprovalStore
+class PagedIndex
+RouterAgent --|> BaseAgent
+OrderIntakeAgent --|> BaseAgent
+OrderExecutionAgent --|> BaseAgent
+FinanceAgent --|> BaseAgent
+KnowledgeAgent --|> BaseAgent
+O2CWorkflow --|> BaseWorkflow
+O2CGovernance --|> BaseGovernanceFramework
+O2CValidationService --|> BaseValidationService
+O2CRecovery --|> BaseReconciliationService
+HttpJsonTool --|> BaseToolService
+LocalTool --|> BaseToolService
+ApprovalStore --|> BaseCheckpointStore
+O2CMCPServer --|> BaseMCPServer
+PolicyRAGPipeline --|> BaseRAGPipeline
+O2CAssistant *-- O2CWorkflow
+O2CAssistant *-- O2CGovernance
+O2CAssistant *-- O2CValidationService
+O2CAssistant *-- O2CRecovery
+O2CAssistant *-- O2CMCPServer
+O2CAssistant *-- BrokerOutboxSweeper
+O2CAssistant *-- OrderStore
+O2CAssistant *-- InventoryStore
+O2CAssistant *-- ApprovalStore
+O2CWorkflow o-- RouterAgent
+O2CWorkflow o-- OrderIntakeAgent
+O2CWorkflow o-- OrderExecutionAgent
+O2CWorkflow o-- FinanceAgent
+O2CWorkflow o-- KnowledgeAgent
+O2CGovernance *-- EntitlementStage
+KnowledgeAgent --> PolicyRAGPipeline
+OrderExecutionAgent --> OrderStore
+O2CRecovery --> OrderStore
+ApprovalStore --> PagedIndex
+LocalTool ..> InventoryStore
+@enduml

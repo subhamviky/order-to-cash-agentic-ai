@@ -1,0 +1,28 @@
+@startuml
+!include ../common/style.puml
+title Order events: transactional outbox, swept to Pub/Sub
+autonumber "<b>0."
+participant OS as "OrderStore"
+database FS as "Firestore\n(row + outbox)"
+participant SCH as "Cloud Scheduler"
+participant A as "O2CAssistant"
+participant SW as "BrokerOutboxSweeper"
+participant L as "FirestoreLease"
+queue PS as "Pub/Sub topic\n(PUBSUB_TOPIC)"
+OS -> FS : put_if_version(order, outbox=[event])\none commit: row and event
+SCH -> A : POST /internal/events/publish (OIDC)
+A -> SW : sweep(config)
+SW -> L : acquire
+alt another sweeper holds the lease
+  SW --> A : SKIPPED_LOCKED
+else lease acquired
+  SW -> FS : read pending records
+  loop each record
+    SW -> PS : publish(body, attributes event_type, order_id)
+    SW -> FS : mark published
+  end
+  SW -> L : release
+  SW --> A : {published, failed_keys}
+end
+note over PS : consumers de-duplicate on\nidempotency_key = order_id:status
+@enduml

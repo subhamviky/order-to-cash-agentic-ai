@@ -1,0 +1,28 @@
+digraph G {
+  graph [rankdir=TB, fontname="DejaVu Sans", fontsize=13, labelloc=t, label=<<b>System context: o2c-agent-service in the Order-to-Cash landscape</b>>, fontcolor="#1F3864", nodesep=0.4, ranksep=0.55, pad=0.25];
+  node [shape=box, style="rounded,filled", fillcolor="#F4F8FC", color="#1F3864", fontname="DejaVu Sans", fontsize=10, fontcolor="#1F3864", margin="0.12,0.05"];
+  edge [color="#2E4A6B", fontname="DejaVu Sans", fontsize=9];
+  subgraph cluster_users { label=<<b>Callers</b>>; style="rounded,filled"; fillcolor="#FBF3E6"; color="#D4A017";
+    sales [label="Sales\n(places orders)"]; fin [label="Finance\n(status, exceptions)"]; appr [label="Finance approver\n(four eyes)"]; viewer [label="Viewer\n(policy questions)"]; mcp [label="External agent\n(MCP client)"];
+  }
+  gw [label="API Gateway\nverifies the Identity Platform token", fillcolor="#FBF3E6", color="#D4A017"];
+  subgraph cluster_o2c { label=<<b>o2c-agent-service (Google Cloud Run)</b>>; style="rounded,filled"; fillcolor="#EAF2FA"; color="#2E75B6";
+    api [label="FastAPI routers\nassistant · approvals · orders · /mcp"];
+    wf [label="O2CWorkflow: route → intake → act\nunder governance stages"];
+    ag [label="Router · Intake · OrderExecution\nFinance · Knowledge agents"];
+    st [label="Order, stock, approval stores\nidempotency claims · outbox"];
+    api -> wf -> ag; ag -> st;
+  }
+  fs [label="Firestore\n(state, claims, outbox, lease)", fillcolor="#E6F4F5", color="#0F7C8C"];
+  ps [label="Pub/Sub topic ...-events\n(PUBSUB_TOPIC)", fillcolor="#E6F4F5", color="#0F7C8C"];
+  sch [label="Cloud Scheduler\nPOST /internal/events/publish", fillcolor="#E6F4F5", color="#0F7C8C"];
+  subgraph cluster_land { label=<<b>Landscape services</b>>; style="rounded,filled"; fillcolor="#F2F2F2"; color="#7F7F7F";
+    set [label="settlement-service (Java, Azure)\nPOST/GET /api/v1/settlements"];
+    rec [label="reconciliation-service (Python, AWS)\nGET /api/v1/exceptions"];
+  }
+  sales -> gw; fin -> gw; appr -> gw; viewer -> gw; mcp -> gw;
+  gw -> api [label="verified claims"];
+  st -> fs; sch -> api [style=dashed]; st -> ps [label="sweeper", style=dashed];
+  ag -> set [label="submit / get settlement\nIdempotency-Key = order id"];
+  ag -> rec [label="open exceptions"];
+}

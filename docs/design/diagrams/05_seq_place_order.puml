@@ -1,0 +1,45 @@
+@startuml
+!include ../common/style.puml
+title Placing a large order: pause for approval, resume, saga
+autonumber "<b>0."
+actor Sales
+actor Approver as "Finance approver"
+participant API as "routers/assistant"
+participant A as "O2CAssistant"
+participant WF as "O2CWorkflow\n(BaseWorkflow)"
+participant G as "O2CGovernance\nstages"
+participant EX as "OrderExecutionAgent"
+database FS as "Firestore\n(claims, approvals,\norders, outbox)"
+participant SET as "settlement-service"
+Sales -> API : POST /api/v1/assistant\n"order 5 SKU-300 for CUST-ACME"
+API -> A : handle(text, tenant, user, role, key)
+A -> A : validation + InflightLimiter.slot()
+A -> WF : execute(state)
+WF -> G : capacity, budget, firewall, entitlement
+WF -> WF : route (RouterAgent), intake (OrderIntakeAgent)
+WF -> FS : idempotency claim ("o2c-" + sha256(order))
+WF -> EX : _prepare: amount = 7250.00 from catalog
+WF -> G : ApprovalStage: amount > 5000.00
+WF -> FS : ApprovalStore.save(checkpoint), PagedIndex.append
+A --> Sales : AWAITING_APPROVAL, approval_id\n(nothing reserved or charged)
+== Later ==
+Approver -> API : POST /api/v1/approvals/{id}/approve
+API -> A : approve(id, tenant, user, role)
+A -> WF : resume(id, decision)
+WF -> WF : _authorize_decision: role finance-approver,\nnot the requester (four eyes)
+WF -> FS : ApprovalStore.decide: PENDING -> APPROVED (CAS)
+WF -> EX : _act(io_modify)
+EX -> EX : credit limit check (refuse: REFUSED)
+EX -> FS : reserve_stock (key ORD-...:reserve, CAS loop)
+EX -> FS : OrderStore.create (PENDING_PAYMENT + order.placed)
+EX -> SET : POST /api/v1/settlements\nIdempotency-Key = order id
+alt 201 COMPLETED
+  EX -> FS : update PAID + order.paid
+else 4xx / COMPENSATED
+  EX -> FS : release_stock; CANCELLED + order.cancelled
+else timeout / 5xx after retries
+  EX -> FS : PAYMENT_UNKNOWN + order.payment_unknown; claim parked
+end
+WF -> FS : claim completed with the replayable result
+A --> Approver : COMPLETED, order
+@enduml

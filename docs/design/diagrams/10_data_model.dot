@@ -1,0 +1,18 @@
+digraph G {
+  graph [rankdir=LR, fontname="DejaVu Sans", fontsize=13, labelloc=t, label=<<b>Data: documents in the Firestore collection (or the in-memory stores)</b>>, fontcolor="#1F3864", nodesep=0.3, ranksep=0.6, pad=0.25];
+  node [shape=plain, fontname="DejaVu Sans", fontsize=10];
+  edge [color="#2E4A6B", fontname="DejaVu Sans", fontsize=9];
+  order [label=<<table border="1" cellborder="0" cellspacing="0" cellpadding="3" color="#1F3864" bgcolor="#F4F8FC"><tr><td bgcolor="#DCE8F5"><b>order:&lt;order_id&gt;</b></td></tr><tr><td align="left">order_id = ORD- + sha256(key)[:10]</td></tr><tr><td align="left">tenant_id, customer_id, sku, quantity</td></tr><tr><td align="left">amount (Decimal), currency</td></tr><tr><td align="left">status, reason</td></tr><tr><td align="left">requested_by, approved_by</td></tr><tr><td align="left">idempotency_key</td></tr><tr><td align="left">settlement_id, settlement_status</td></tr></table>>];
+  stock [label=<<table border="1" cellborder="0" cellspacing="0" cellpadding="3" color="#1F3864" bgcolor="#F4F8FC"><tr><td bgcolor="#DCE8F5"><b>stock:&lt;sku&gt;</b></td></tr><tr><td align="left">available (int)</td></tr><tr><td align="left">created if absent at start-up</td></tr></table>>];
+  appr [label=<<table border="1" cellborder="0" cellspacing="0" cellpadding="3" color="#1F3864" bgcolor="#F4F8FC"><tr><td bgcolor="#DCE8F5"><b>approval:&lt;checkpoint_id&gt;</b></td></tr><tr><td align="left">approval: tenant, requested_by,</td></tr><tr><td align="left">  order_request, amount, status,</td></tr><tr><td align="left">  decided_by, state</td></tr><tr><td align="left">checkpoint: E2A checkpoint</td></tr></table>>];
+  idx [label=<<table border="1" cellborder="0" cellspacing="0" cellpadding="3" color="#1F3864" bgcolor="#F4F8FC"><tr><td bgcolor="#DCE8F5"><b>approvals:&lt;tenant&gt;:head / :page:&lt;n&gt;</b></td></tr><tr><td align="left">pages of 500 approval ids</td></tr></table>>];
+  claim [label=<<table border="1" cellborder="0" cellspacing="0" cellpadding="3" color="#0F7C8C" bgcolor="#E6F4F5"><tr><td bgcolor="#CDE9EC"><b>idempotency claim (E2A layout)</b></td></tr><tr><td align="left">tenant + key, fingerprint</td></tr><tr><td align="left">state, owner, expiry, result</td></tr></table>>];
+  ob [label=<<table border="1" cellborder="0" cellspacing="0" cellpadding="3" color="#0F7C8C" bgcolor="#E6F4F5"><tr><td bgcolor="#CDE9EC"><b>outbox order-events (E2A layout)</b></td></tr><tr><td align="left">destination, body, attributes</td></tr><tr><td align="left">tenant_id, key = order_id:status</td></tr></table>>];
+  lease [label=<<table border="1" cellborder="0" cellspacing="0" cellpadding="3" color="#0F7C8C" bgcolor="#E6F4F5"><tr><td bgcolor="#CDE9EC"><b>lease (sweeper)</b></td></tr></table>>];
+  pol [label=<<table border="1" cellborder="0" cellspacing="0" cellpadding="3" color="#7F7F7F" bgcolor="#F2F2F2"><tr><td bgcolor="#E3E3E3"><b>policies_&lt;tenant&gt; (in process memory)</b></td></tr><tr><td align="left">chunk per POL-... paragraph</td></tr><tr><td align="left">text, BM25 terms, 256-dim vector</td></tr></table>>];
+  order -> ob [label="same commit"];
+  appr -> idx [label="listed in"];
+  order -> claim [label="idempotency_key", style=dashed];
+  appr -> order [label="resumes into", style=dashed];
+  order -> stock [label="reserve / release", style=dashed];
+}
