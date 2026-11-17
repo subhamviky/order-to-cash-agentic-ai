@@ -124,3 +124,15 @@ run "no_token_until_configured" {
     error_message = "without the Entra settings, calls carry no token"
   }
 }
+
+run "unfinished_orders_are_recovered_on_a_schedule" {
+  command = plan
+  assert {
+    condition     = google_cloud_scheduler_job.recover_orders.schedule == "*/5 * * * *" && google_cloud_scheduler_job.recover_orders.http_target[0].http_method == "POST"
+    error_message = "Cloud Scheduler calls the recovery sweep every five minutes"
+  }
+  assert {
+    condition     = contains([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : "${e.name}=${e.value}"], "O2C_RECOVERY_AFTER_SECONDS=600")
+    error_message = "orders are recovered only after the request's lease"
+  }
+}

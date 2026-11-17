@@ -169,6 +169,14 @@ resource "google_cloud_run_v2_service" "app" {
         value = var.firestore_collection
       }
       # identity.tf: the caller comes from the claims API Gateway verified
+      # recovery.tf: when an unfinished order is old enough to recover (G-2)
+      dynamic "env" {
+        for_each = local.recovery_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       # workload.tf: this service's own token on calls to settlement and reconciliation (SI-01)
       dynamic "env" {
         for_each = local.workload_env

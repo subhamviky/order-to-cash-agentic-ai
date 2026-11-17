@@ -4,9 +4,11 @@ handle():            validate the request, then O2CWorkflow.execute(): route -> 
                      intake) -> the specialist, every step behind the governance stages.
 approve() / reject(): a finance approver's decision. O2CWorkflow.resume() continues the
                      paused order at its step, under the same idempotency key, exactly once.
+recover_stuck():     the scheduled sweep: every order left unfinished for a while, recovered.
 recover():           an unfinished order (payment UNKNOWN, or a saga a crash stopped), through
                      O2CRecovery.reconcile() (E2A BaseReconciliationService).
 """
+import os
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -29,7 +31,7 @@ from .catalog import Catalog
 from .governance import GovernancePolicy, O2CGovernance
 from .recovery import O2CRecovery
 from .state import event_ports, events_topic, state_ports
-from .stores import ApprovalStore, InventoryStore, OrderStore
+from .stores import FINAL_STATUSES, ApprovalStore, InventoryStore, OrderStore
 from .validation import O2CValidationService
 
 HELP = "I can place orders, report an order's payment status, list payment exceptions and answer O2C policy questions."
@@ -105,6 +107,34 @@ class O2CAssistant:
             raise NotFound(f"order {order_id}")
         self.recovery.reconcile(self._request_config(), tenant_id=tenant_id, order_id=order_id)
         return self.orders.get(tenant_id, order_id)
+
+    def recover_stuck(self, older_than_seconds: Optional[float] = None) -> Dict:
+        """Finish the orders a crash or a lost answer left unfinished (Cloud Scheduler calls this).
+
+        Each order listed open for longer than `older_than_seconds` (O2C_RECOVERY_AFTER_SECONDS,
+        default 600: past the idempotency lease) goes through O2CRecovery, which takes over its
+        claim only if no live request holds it. An entry whose order is final, or that has no order
+        after the same period, is removed."""
+        older_than = float(os.getenv("O2C_RECOVERY_AFTER_SECONDS", "600") if older_than_seconds is None
+                           else older_than_seconds)
+        now = self.orders.open.clock()
+        report = {"checked": 0, "finished": [], "still_open": [], "removed": 0}
+        for entry, since in self.orders.open.entries().items():
+            if now - since < older_than:
+                continue
+            tenant_id, order_id = entry.split("/", 1)
+            report["checked"] += 1
+            order = self.orders.get(tenant_id, order_id)
+            if order is not None and order.status not in FINAL_STATUSES:
+                self.recovery.reconcile(self._request_config(), tenant_id=tenant_id, order_id=order_id)
+                order = self.orders.get(tenant_id, order_id)
+                if order.status not in FINAL_STATUSES:
+                    report["still_open"].append(order_id)
+                    continue
+                report["finished"].append(order_id)
+            self.orders.open.remove(tenant_id, order_id)
+            report["removed"] += 1
+        return report
 
     def publish_events(self) -> Dict:
         """Publish the order events committed so far (Cloud Scheduler calls this). One sweeper at

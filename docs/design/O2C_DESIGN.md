@@ -9,7 +9,7 @@
 | Project | `order-to-cash-agentic-ai` — service `o2c-agent-service` |
 | Document type | Design Document (HLD + LLD) |
 | Author | Subham Gupta, Principal Platform Architect |
-| Source baseline | `subhamviky/order-to-cash-agentic-ai` `main` at `68a9a32`:<ul><li>**o2c-agent-service:** Python 3.12, FastAPI, about 2,070 lines in 38 modules; `policies/`, `knowledge/`, `evals/`; 12 test modules with 59 test functions.</li><li>**Built on:** **E2A v1.7.5** and **e2a-adapters 1.7.5** `[gcp]`; `capability-oriented-dsa` v0.2.0.</li><li>**Infrastructure:** `infra/*.tf` (Google Cloud), `infra/api-gateway/openapi.yaml`, `infra/tests/gcp.tftest.hcl`.</li></ul> |
+| Source baseline | `subhamviky/order-to-cash-agentic-ai` `main` at `68a9a32`:<ul><li>**o2c-agent-service:** Python 3.12, FastAPI, about 2,070 lines in 38 modules; `policies/`, `knowledge/`, `evals/`; 13 test modules with 65 test functions.</li><li>**Built on:** **E2A v1.7.5** and **e2a-adapters 1.7.5** `[gcp]`; `capability-oriented-dsa` v0.2.0.</li><li>**Infrastructure:** `infra/*.tf` (Google Cloud), `infra/api-gateway/openapi.yaml`, `infra/tests/gcp.tftest.hcl`.</li></ul> |
 | Date | 16 November 2026 |
 | Status | Describes the code on `main`. Section 14 lists where the code and the original requirements differ, and the open gaps. |
 
@@ -206,6 +206,7 @@ Sections 5 to 13 describe this current state; Section 14 records the remaining d
 | `o2c.tf` | Downstream URLs; `invoker_members` with a validation that refuses `allUsers` and `allAuthenticatedUsers` ("the O2C assistant moves money: it is never public"); Artifact Registry (Docker); `run.invoker` per member |
 | `firestore.tf` | Firestore native database, optimistic concurrency, point-in-time recovery, delete protection; TTL field `ttl`; `datastore.user` conditioned on this database only; `max_instance_count` default 3 |
 | `events.tf` | `pubsub.publisher` on the events topic; scheduler service account with `run.invoker`; Cloud Scheduler job every minute calling `/internal/events/publish` with an OIDC token, no retry (the next run picks up what is pending) |
+| `recovery.tf` | A second Cloud Scheduler job, every five minutes (`recovery_schedule`), calling `/internal/orders/recover` with the scheduler's OIDC token; `O2C_RECOVERY_AFTER_SECONDS` (600) |
 | `identity.tf` | `E2A_IDENTITY_SOURCE=gcp_api_gateway` (default) and the trusted issuers as environment |
 | `api-gateway/openapi.yaml` | API Gateway config (Swagger 2.0): `x-google-backend` to the Cloud Run URL, Firebase / Identity Platform security definition; routes for assistant, approvals, orders, recover, `/mcp`, `/health`. Deployed with `gcloud`; its service account is one of the `invoker_members`. |
 
@@ -259,6 +260,7 @@ All state is on two E2A ports chosen by `O2C_STATE_BACKEND`: a `BaseTransactiona
 | Idempotency claim | E2A layout | One per tenant and key: fingerprint, state (IN_PROGRESS, SUCCEEDED, UNKNOWN …), owner, expiry, replayable result |
 | Outbox record | E2A layout, `order-events` | Destination, body, attributes, tenant, idempotency key; pending until the sweeper publishes it |
 | Lease | E2A layout | One sweeper at a time |
+| Open orders | `open-orders` | `{"<tenant>/<order_id>": since}`: every order not yet final. Listed before the order is first written, removed after it is final (compare-and-set), so a crash leaves it listed, never lost. Holds only unfinished orders, so it stays small. |
 | Policy index | `policies_<tenant>` (process memory) | One chunk per `POL-…` paragraph: text, BM25 terms, 256-dimension hashed vector; rebuilt from `knowledge/` at start-up |
 
 **Reference data** is in `policies/catalog.yaml` (tenant `acme`, EUR, receivable account ACC-3000; customers CUST-ACME, CUST-GLOBEX, CUST-HOLD with payer accounts and credit limits; products SKU-100, SKU-200, SKU-300 with price and initial stock).
@@ -330,6 +332,7 @@ All state is on two E2A ports chosen by `O2C_STATE_BACKEND`: a `BaseTransactiona
 | `GET /api/v1/usage` | Simulated model calls, tokens and cost |
 | `POST /mcp` | JSON-RPC 2.0 |
 | `POST /internal/events/publish` | `{status, published, failed_keys}`; SKIPPED_LOCKED when another sweeper holds the lease |
+| `POST /internal/orders/recover` | `{checked, finished, still_open, removed}`: the scheduled sweep of unfinished orders |
 | `GET /health` | `{status: UP}` |
 
 ## 9. Dynamic Behaviour
@@ -417,7 +420,7 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 
 | Evidence | What it proves |
 |---|---|
-| Tests (12 modules, 59 test functions; downstream services as in-process fakes) | AC-1 to AC-14: routing, intake, saga, replay and conflict, credit and stock, compensation, approval and four eyes, unknown outcomes and recovery, finance and knowledge answers, governance, HTTP and MCP. Identity at ingress, order events, paged index, shared state. |
+| Tests (13 modules, 65 test functions; downstream services as in-process fakes) | AC-1 to AC-14: routing, intake, saga, replay and conflict, credit and stock, compensation, approval and four eyes, unknown outcomes and recovery, finance and knowledge answers, governance, HTTP and MCP. Identity at ingress, order events, paged index, shared state. |
 | CI `o2c-ci` tests, second run | The same suite with state in Firestore and events to Pub/Sub (emulators), several instances on one database |
 | CI release gate (`O2CReleaseGate`, seven stages) | Secret scan, tests, strict conformance, compile, RAG golden set (10 cases), red-team (injections, PII, entitlements), rollout record |
 | CI `terraform` | `fmt`, `validate`, `terraform test` with a mock provider (`gcp.tftest.hcl`) |
@@ -430,7 +433,7 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 | # | Item | Kind | Notes |
 |---|---|---|---|
 | G-1 | Calls to settlement-service and reconciliation-service carried `X-Tenant-Id` only, with no service credential | Fixed (SI-01) | A Google ID token exchanged for an Entra token per target (Section 5.6); the exception query uses reconciliation's service route. Not yet run against live clouds. |
-| G-2 | PAYMENT_UNKNOWN orders are recovered only on request (`POST …/recover`) | Gap (operations) | A scheduled job (like the events schedule) could call recovery for orders older than a timeout |
+| G-2 | Unfinished orders were recovered only on request (`POST …/recover`) | Fixed | `recover_stuck()`, every five minutes. Every order listed in `open-orders` for longer than `O2C_RECOVERY_AFTER_SECONDS` (600, past the request's lease) goes through `O2CRecovery`. It never takes over a live claim. Entries whose order is final or missing are removed. |
 | G-3 | A crash inside the order saga left an order recovery could not finish: stock reserved with no order (lost), or an order in PENDING_PAYMENT after the money moved. A `409` from settlement-service was taken as a decline. | Fixed | Order recorded RESERVING first; keyed stock changes; `advance_order` shared by the request and recovery; recovery takes RESERVING and PENDING_PAYMENT; `409` is UNKNOWN; RECOVERY_REQUIRED names the order (`test_order_recovery.py`, on memory and on the emulators) |
 | G-12 | A crash after the claim but before the order is recorded leaves the claim with nothing to recover | Gap (minor) | Nothing moved. With a derived key the same order by the same user stays RECOVERY_REQUIRED; a recovery path for claims without an order, or a client `Idempotency-Key`, avoids it |
 | G-13 | E2A's `BaseWorkflow` settled the claim in `finally`, so a `BaseException` inside a step completed it as SUCCEEDED | Fixed in E2A v1.8.0 | The claim is left IN_PROGRESS for recovery |
@@ -438,7 +441,7 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 | G-5 | Single tenant reference data: one `catalog.yaml` | Limit | A catalog per tenant (or a product and customer service) for multi-tenant use |
 | G-6 | The Secret Manager secret `…-app` from the A2C scaffold is not read by the code | Note | G-1 needed no secret; remove it, or keep it for a future credential |
 | G-7 | The subscription `…-events-sub` has no consumer in the landscape | Note | Events are available; settlement or analytics consumers are future work |
-| G-8 | `/internal/events/publish` and `/api/v1/usage` have no caller check in the service | Note | Not routed by API Gateway, so only direct Cloud Run invokers reach them; a role check would make that explicit |
+| G-8 | `/internal/events/publish`, `/internal/orders/recover` and `/api/v1/usage` have no caller check in the service | Note | Not routed by API Gateway, so only direct Cloud Run invokers (the scheduler, operators) reach them; a role check would make that explicit |
 | G-9 | Cloud Run ingress is `INGRESS_TRAFFIC_ALL` | Note | Protected by IAM invokers; internal ingress plus the gateway would narrow it further |
 | G-10 | `capability-oriented-dsa` is pinned at v0.2.0; the other projects use v0.3.0 | Note | `TOP_K` is unchanged; align on the next upgrade |
 | G-11 | The model is simulated, and embeddings are a hashed bag of words | By design | A managed provider by profile (Section 5.7); real embeddings with the same port |
