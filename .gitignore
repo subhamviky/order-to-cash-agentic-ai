@@ -219,3 +219,7 @@ __marimo__/
 
 .env
 .venv/
+
+# Terraform working directories
+.terraform/
+.terraform.lock.hcl
