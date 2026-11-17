@@ -76,6 +76,14 @@ async def mcp(payload: dict, request: Request, who: Caller = Depends(caller)) ->
     return await _assistant(request).mcp.serve_async(payload, _assistant(request).config, tenant_id=who.tenant_id)
 
 
+@router.post("/internal/orders/recover")
+def recover_stuck_orders(request: Request) -> dict:
+    """Finish the orders left unfinished by a crash or a lost answer. Cloud Scheduler calls this
+    (infra/events.tf); only the service's invokers (Cloud Run IAM) can reach it, and API Gateway
+    does not route it."""
+    return _assistant(request).recover_stuck()
+
+
 @router.post("/internal/events/publish")
 def publish_events(request: Request) -> dict:
     """Publish pending order events to the events topic. Cloud Scheduler calls this on a

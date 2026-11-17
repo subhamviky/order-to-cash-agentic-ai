@@ -5,8 +5,9 @@ it): the in-memory reference adapter for tests and one instance, or e2a-adapters
 adapter, durable and shared, so that several Cloud Run instances serve the same orders, stock
 and approvals (design note D-03).
 """
+import time
 from decimal import Decimal
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from e2a import BaseCheckpointStore, BaseTransactionalStore
 from e2a_inmemory_adapters import InMemoryTransactionalStore
@@ -16,14 +17,54 @@ from .events import DEFAULT_TOPIC, order_event
 from .paged_index import PagedIndex
 
 
+FINAL_STATUSES = ("PAID", "CANCELLED", "REFUSED")
+
+
+class OpenOrders:
+    """The orders not yet final, so a scheduled sweep can find the ones a crash left behind (the
+    transactional store has no queries). One document, {"<tenant>/<order_id>": since}, changed by
+    compare-and-set; it holds only unfinished orders, so it stays small.
+
+    An order is listed BEFORE it is first written and removed only AFTER it is final, so a crash
+    between the two writes leaves it listed, never lost: the sweep removes an entry whose order
+    is final or (after the grace period) does not exist."""
+
+    KEY = "open-orders"
+
+    def __init__(self, db: BaseTransactionalStore, clock=time.time) -> None:
+        self._db, self.clock = db, clock
+
+    def _change(self, update) -> None:
+        while True:
+            value, version = self._db.get_versioned(self.KEY) or ({"orders": {}}, None)
+            orders = dict(value.get("orders", {}))
+            if not update(orders):
+                return
+            if self._db.put_if_version(self.KEY, {"orders": orders}, version).committed:
+                return
+
+    def add(self, tenant_id: str, order_id: str) -> None:
+        entry = f"{tenant_id}/{order_id}"
+        self._change(lambda orders: entry not in orders and orders.update({entry: self.clock()}) is None)
+
+    def remove(self, tenant_id: str, order_id: str) -> None:
+        entry = f"{tenant_id}/{order_id}"
+        self._change(lambda orders: orders.pop(entry, None) is not None)
+
+    def entries(self) -> Dict[str, float]:
+        return dict((self._db.get(self.KEY) or {}).get("orders", {}))
+
+
 class OrderStore:
     """Orders. When the store has an outbox (services/state.py gives it one), every change of
-    status is committed together with its event (services/events.py)."""
+    status is committed together with its event (services/events.py). Every order not yet final
+    is listed in OpenOrders (for the scheduled recovery sweep)."""
 
     def __init__(self, db: Optional[BaseTransactionalStore] = None, topic: str = DEFAULT_TOPIC) -> None:
         self._db = db or InMemoryTransactionalStore()
         self.topic = topic
         self.emits_events = getattr(self._db, "outbox", None) is not None
+        self.open = OpenOrders(self._db)
 
     def _events(self, order: Order, previous_status: Optional[str]) -> List[dict]:
         if not self.emits_events or order.status == previous_status:
@@ -33,6 +74,8 @@ class OrderStore:
 
     def create(self, order: Order) -> bool:
         """Insert once: a second create of the same order id changes nothing (and announces nothing)."""
+        if order.status not in FINAL_STATUSES:
+            self.open.add(order.tenant_id, order.order_id)          # listed before it exists
         return self._db.put_if_version(f"order:{order.order_id}", order.model_dump(mode="json"), None,
                                        outbox=self._events(order, None)).committed
 
@@ -42,6 +85,8 @@ class OrderStore:
                                          outbox=self._events(order, row[0].get("status")))
         if not result.committed:
             raise RuntimeError(f"order {order.order_id} changed concurrently")
+        if order.status in FINAL_STATUSES:
+            self.open.remove(order.tenant_id, order.order_id)       # removed once it is final
 
     def get(self, tenant_id: str, order_id: str) -> Optional[Order]:
         raw = self._db.get(f"order:{order_id}")
