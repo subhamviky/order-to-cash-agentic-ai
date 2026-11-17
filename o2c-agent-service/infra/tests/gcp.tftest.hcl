@@ -98,3 +98,29 @@ run "public_access_is_refused" {
 
   expect_failures = [var.invoker_members]
 }
+
+run "calls_carry_this_services_identity" {
+  command = plan
+  variables {
+    settlement_api_url     = "https://settlement.example"
+    reconciliation_api_url = "https://reconciliation.example"
+    entra_directory_id     = "dir"
+    entra_client_id        = "o2c-app"
+    settlement_scope       = "api://landscape-test-settlement/.default"
+    reconciliation_scope   = "api://landscape-test-reconciliation/.default"
+  }
+  assert {
+    condition = alltrue([for kv in ["E2A_WORKLOAD_IDENTITY=gcp", "E2A_WORKLOAD_ENTRA_CLIENT_ID=o2c-app",
+      "E2A_WORKLOAD_TOKEN_SCOPES={\"https://reconciliation.example\":\"api://landscape-test-reconciliation/.default\",\"https://settlement.example\":\"api://landscape-test-settlement/.default\"}"] :
+    contains([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : "${e.name}=${e.value}"], kv)])
+    error_message = "o2c exchanges its Google ID token for an Entra token per target"
+  }
+}
+
+run "no_token_until_configured" {
+  command = plan
+  assert {
+    condition     = !contains([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : e.name], "E2A_WORKLOAD_IDENTITY")
+    error_message = "without the Entra settings, calls carry no token"
+  }
+}

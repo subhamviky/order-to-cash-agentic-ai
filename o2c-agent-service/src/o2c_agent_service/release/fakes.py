@@ -20,6 +20,7 @@ class FakeSettlementService:
         self.by_key: Dict[str, tuple] = {}
         self.by_id: Dict[str, dict] = {}
         self.posts = 0
+        self.post_headers: List[dict] = []      # what each POST carried (SI-01: the caller's token)
         self.fail_next = 0             # answer 503 before committing anything
         self.answer_delay = 0.0        # commit, then answer late (every answer, replays too)
         self.in_progress_next = 0      # answer 409 "still in progress" (its own request is unfinished)
@@ -32,6 +33,7 @@ class FakeSettlementService:
             view = self.by_id.get(request.url.path.rsplit("/", 1)[-1])
             return httpx.Response(200, json=view) if view else httpx.Response(404, json={"error": "not found"})
         self.posts += 1
+        self.post_headers.append(dict(request.headers))
         if self.fail_next:
             self.fail_next -= 1
             return httpx.Response(503, json={"error": "unavailable"})
@@ -65,11 +67,12 @@ class FakeSettlementService:
 
 
 class FakeReconciliationService:
-    """GET /api/v1/exceptions?status=OPEN in reconciliation-service's response format."""
+    """GET /service/v1/exceptions?status=OPEN in reconciliation-service's response format."""
 
     def __init__(self) -> None:
         self.cases: List[dict] = []
         self.down = False
+        self.requests: List[httpx.Request] = []
 
     def add_case(self, line_id: str, kind: str, detail: str, action: str) -> None:
         self.cases.append({"line_id": line_id, "kind": kind, "detail": detail, "status": "OPEN",
@@ -78,7 +81,10 @@ class FakeReconciliationService:
 
     def transport(self) -> httpx.MockTransport:
         def handle(request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
             if self.down:
                 return httpx.Response(503, json={"error": "unavailable"})
+            if request.url.path != "/service/v1/exceptions":       # the service route (SI-01)
+                return httpx.Response(404, json={"error": "not found"})
             return httpx.Response(200, json=[c for c in self.cases if c["status"] == "OPEN"])
         return httpx.MockTransport(handle)

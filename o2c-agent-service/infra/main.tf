@@ -169,6 +169,14 @@ resource "google_cloud_run_v2_service" "app" {
         value = var.firestore_collection
       }
       # identity.tf: the caller comes from the claims API Gateway verified
+      # workload.tf: this service's own token on calls to settlement and reconciliation (SI-01)
+      dynamic "env" {
+        for_each = local.workload_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
       dynamic "env" {
         for_each = local.identity_env
         content {

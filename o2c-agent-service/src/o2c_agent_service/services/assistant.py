@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from e2a import BrokerOutboxSweeper, CapacityRefusal, ResumeRefused
+from e2a_adapters.workload import workload_credentials
 from e2a_simulated_llm import SimulatedLLMService
 
 from ..agents.finance_agent import FinanceAgent
@@ -62,7 +63,9 @@ class O2CAssistant:
         self.tools = {**local_tools(self.inventory, self.orders),
                       **settlement_tools(settlement_url, settlement_transport),
                       **reconciliation_tools(reconciliation_url, reconciliation_transport)}
+        credentials = workload_credentials()     # SI-01: this service's token to the others; None unless configured
         self.config = {"llm_service": llm, "governance_engine": self.governance, "tools": self.tools,
+                       **({"credential_provider": credentials} if credentials is not None else {}),
                        "idempotency_store": self.store, "checkpoint_store": self.approvals,
                        "min_confidence": 0.85, "max_latency": 15.0, "timeout": 5.0, "retries": 2, **(config or {})}
         self.mcp = O2CMCPServer(self.tools)

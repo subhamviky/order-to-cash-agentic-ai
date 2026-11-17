@@ -7,6 +7,8 @@ Agents reach a tool only through E2A's io_read (reads, retried freely) or io_mod
 blind retry), limited by the governance tool_policy. Every result carries
 physical_success and a typed outcome: the agent's text is never the truth. The tenant
 comes from the request context (or, for MCP calls, from the server's caller).
+Calls to the other services carry this service's own token when a credential provider is bound
+(hub design note SI-01): a Google ID token exchanged for an Entra token (e2a_adapters.workload).
 """
 from typing import Any, Callable, Dict, Optional
 
@@ -37,7 +39,10 @@ class HttpJsonTool(RestToolService):
 
     async def _send_request(self, endpoint, body, token=None, timeout=None, config=None, **kwargs):
         body = dict(body)
-        headers = {"X-Tenant-Id": body.pop("tenant_id", None) or kwargs["tenant_id"]}
+        headers = {"X-Tenant-Id": body.pop("tenant_id", None) or kwargs["tenant_id"],
+                   # SI-01: this service's own token, from the bound credential provider
+                   # (config['credential_provider'], e2a_adapters.workload); none when not configured
+                   **(kwargs.get("auth_headers") or {})}
         if kwargs.get("idempotency_key"):
             headers["Idempotency-Key"] = kwargs["idempotency_key"]
         url = endpoint.format(**body)
@@ -95,5 +100,6 @@ def settlement_tools(base_url: str, transport=None) -> Dict[str, HttpJsonTool]:
 
 
 def reconciliation_tools(base_url: str, transport=None) -> Dict[str, HttpJsonTool]:
-    return {"open_exceptions": HttpJsonTool("open_exceptions", base_url, "GET", "/api/v1/exceptions",
+    # the service route (hub design note SI-01): verified with an Entra token, not a user's token
+    return {"open_exceptions": HttpJsonTool("open_exceptions", base_url, "GET", "/service/v1/exceptions",
                                             transport=transport)}

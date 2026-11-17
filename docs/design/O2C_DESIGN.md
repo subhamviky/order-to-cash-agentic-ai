@@ -9,7 +9,7 @@
 | Project | `order-to-cash-agentic-ai` — service `o2c-agent-service` |
 | Document type | Design Document (HLD + LLD) |
 | Author | Subham Gupta, Principal Platform Architect |
-| Source baseline | `subhamviky/order-to-cash-agentic-ai` `main` at `68a9a32`:<ul><li>**o2c-agent-service:** Python 3.12, FastAPI, about 2,070 lines in 38 modules; `policies/`, `knowledge/`, `evals/`; 11 test modules with 57 test functions.</li><li>**Built on:** **E2A v1.7.5** and **e2a-adapters 1.7.5** `[gcp]`; `capability-oriented-dsa` v0.2.0.</li><li>**Infrastructure:** `infra/*.tf` (Google Cloud), `infra/api-gateway/openapi.yaml`, `infra/tests/gcp.tftest.hcl`.</li></ul> |
+| Source baseline | `subhamviky/order-to-cash-agentic-ai` `main` at `68a9a32`:<ul><li>**o2c-agent-service:** Python 3.12, FastAPI, about 2,070 lines in 38 modules; `policies/`, `knowledge/`, `evals/`; 12 test modules with 59 test functions.</li><li>**Built on:** **E2A v1.7.5** and **e2a-adapters 1.7.5** `[gcp]`; `capability-oriented-dsa` v0.2.0.</li><li>**Infrastructure:** `infra/*.tf` (Google Cloud), `infra/api-gateway/openapi.yaml`, `infra/tests/gcp.tftest.hcl`.</li></ul> |
 | Date | 16 November 2026 |
 | Status | Describes the code on `main`. Section 14 lists where the code and the original requirements differ, and the open gaps. |
 
@@ -173,8 +173,8 @@ Sections 5 to 13 describe this current state; Section 14 records the remaining d
 | **AI-DLC / P0** | Poetry project, FastAPI `main.py`, Dockerfile, first test, generated from one request file | `aidlc/requests/o2c-agent-service.json`, `aidlc-scaffold.yml` |
 | **G2C** | `RouterAgent` skeleton on the installed E2A `BaseAgent`; hooks implemented by hand | `agents/router_agent.py` |
 | **A2C** | Spec, Google Cloud Terraform (Cloud Run, Pub/Sub with dead-letter topic, Secret Manager) and its test | `docs/a2c/spec.md`, `infra/main.tf`, `infra/tests/` |
-| **E2A v1.7.5** | <ul><li>`BaseAgent` ×5, `BaseWorkflow` (`Steps`, `Step`, `Route`, `resume()`);</li><li>`BaseGovernanceFramework` with stages, `BaseValidationService`;</li><li>`BaseRAGPipeline`, `BaseIndexingPipeline`, `BaseEmbeddingModel`, `BaseVectorIndex`, `RAGPipeline`;</li><li>`RestToolService`, `BaseToolService`, `BaseMCPServer`, `ModifyAccess`;</li><li>`BaseReconciliationService`, `BaseCheckpointStore`, `BrokerOutboxSweeper`;</li><li>`ProjectReleaseGate`, `SimulatedLLMService`, in-memory reference adapters.</li></ul> | everywhere |
-| **e2a-adapters 1.7.5** `[gcp]` | `FirestoreTransactionalStore`, `FirestoreIdempotencyStore`, `FirestoreOutboxStore`, `FirestoreLease`, `PubSubBroker`, `identity_at_ingress` (`gcp_api_gateway`, Identity Platform claim preset) | `services/state.py`, `routers/identity.py` |
+| **E2A v1.8.0** | <ul><li>`BaseAgent` ×5, `BaseWorkflow` (`Steps`, `Step`, `Route`, `resume()`);</li><li>`BaseGovernanceFramework` with stages, `BaseValidationService`;</li><li>`BaseRAGPipeline`, `BaseIndexingPipeline`, `BaseEmbeddingModel`, `BaseVectorIndex`, `RAGPipeline`;</li><li>`RestToolService`, `BaseToolService`, `BaseMCPServer`, `ModifyAccess`;</li><li>`BaseReconciliationService`, `BaseCheckpointStore`, `BrokerOutboxSweeper`;</li><li>`ProjectReleaseGate`, `SimulatedLLMService`, in-memory reference adapters.</li></ul> | everywhere |
+| **e2a-adapters 1.8.0** `[gcp]` | `workload_credentials` (a Google ID token exchanged for Entra, SI-01), `FirestoreTransactionalStore`, `FirestoreIdempotencyStore`, `FirestoreOutboxStore`, `FirestoreLease`, `PubSubBroker`, `identity_at_ingress` (`gcp_api_gateway`, Identity Platform claim preset) | `services/state.py`, `routers/identity.py` |
 | **e2a-managed-providers** | Optional. A profile replaces `build_o2c_llm()` with a managed `llm_service`. The provider repository's CI runs this suite and a landscape run on every profile. | `run_project_suites.sh`, `run_landscape.py` there |
 | **DSA** | Governed `TOP_K` for re-ranking retrieved policies | `rag/policy_rag.py` |
 
@@ -215,7 +215,7 @@ Sections 5 to 13 describe this current state; Section 14 records the remaining d
 |---|---|---|
 | `POST /api/v1/settlements` | O2C → settlement-service | `{payerAccount, payeeAccount, amount, currency}`, headers `X-Tenant-Id`, `Idempotency-Key` = order id. Success: `201` with status COMPLETED. Definitive: `201` (COMPENSATED), `400`, `404`, `422`. `409` (the same key still in progress at settlement-service), `5xx` or no answer: UNKNOWN. |
 | `GET /api/v1/settlements/{id}` | O2C → settlement-service | Settlement view (status) for UC-3 |
-| `GET /api/v1/exceptions?status=OPEN` | O2C → reconciliation-service | Cases with `line_id`, `kind`, `detail`, `proposal.action` |
+| `GET /service/v1/exceptions?status=OPEN` (the service route, SI-01) | O2C → reconciliation-service | Cases with `line_id`, `kind`, `detail`, `proposal.action` |
 | Order events | O2C → Pub/Sub topic | Body: `event_type` plus `order_id`, `tenant_id`, `customer_id`, `sku`, `quantity`, `amount`, `currency`, `status`, `settlement_id`, `reason`. Attributes `event_type`, `order_id`. Idempotency key `order_id:status`. |
 | MCP | external agent → O2C | JSON-RPC 2.0 `tools/list`, `tools/call` for `check_stock`, `get_order` |
 
@@ -230,7 +230,11 @@ The tests use in-process fakes of both downstream services (`release/fakes.py`).
   - Without `E2A_IDENTITY_SOURCE` (tests, local, landscape demo) the three headers are taken as given.
 - **Reaching Cloud Run.** Only `invoker_members` (the gateway's account, operators) and the scheduler's account hold `run.invoker`; `allUsers` is refused by validation.
 - **Inside.** Entitlements per agent (ABAC); tool allow-list per agent; firewall before any model call; masks for card numbers and e-mail addresses on ingress and egress; MCP calls always carry the caller's tenant.
-- **Downstream.** Calls to settlement-service and reconciliation-service send `X-Tenant-Id` only (G-1).
+- **Downstream** (hub design note SI-01).
+  - **What each call carries:** calls to settlement-service and to reconciliation's service route send `Authorization: Bearer` with an Entra token, along with `X-Tenant-Id`.
+  - **How the token is made:** the Cloud Run service account's Google ID token is exchanged for an Entra token for each target. `e2a_adapters.workload` is bound as `config['credential_provider']`, and `HttpJsonTool` sends its headers.
+  - **No secret:** the caller app's federated credential trusts the service account's unique id.
+  - **Grants:** submit and read on settlement, and read on reconciliation, for its tenants (`landscape-identity/` in financial-settlement-platform). Local tools get no token.
 - **Secrets.** None in code or Terraform. Firestore and Pub/Sub use the runtime service account.
 
 ### 5.7 Model access
@@ -401,6 +405,7 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 | `FIRESTORE_EMULATOR_HOST`, `PUBSUB_EMULATOR_HOST` | unset | Emulators |
 | `PUBSUB_TOPIC` | `o2c-order-events` | Events topic (Terraform sets the generated topic) |
 | `E2A_IDENTITY_SOURCE` | unset (header mode) | `gcp_api_gateway` in Google Cloud: fail closed |
+| `E2A_WORKLOAD_IDENTITY=gcp`, `E2A_WORKLOAD_ENTRA_TENANT`, `E2A_WORKLOAD_ENTRA_CLIENT_ID`, `E2A_WORKLOAD_TOKEN_SCOPES` | unset (no token) | This service's own token on calls to settlement and reconciliation (`workload.tf`, SI-01) |
 | `E2A_IDENTITY_CLAIM_MAP`, `E2A_IDENTITY_TRUSTED_ISSUERS` | Identity Platform preset; any issuer | Claim mapping |
 | `ENVIRONMENT` | — | Label |
 | `policies/governance.yaml` | in the repository | Entitlements, tools, approval threshold 5000.00, approver role, four eyes, firewall, masks, capacity |
@@ -412,7 +417,7 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 
 | Evidence | What it proves |
 |---|---|
-| Tests (11 modules, 57 test functions; downstream services as in-process fakes) | AC-1 to AC-14: routing, intake, saga, replay and conflict, credit and stock, compensation, approval and four eyes, unknown outcomes and recovery, finance and knowledge answers, governance, HTTP and MCP. Identity at ingress, order events, paged index, shared state. |
+| Tests (12 modules, 59 test functions; downstream services as in-process fakes) | AC-1 to AC-14: routing, intake, saga, replay and conflict, credit and stock, compensation, approval and four eyes, unknown outcomes and recovery, finance and knowledge answers, governance, HTTP and MCP. Identity at ingress, order events, paged index, shared state. |
 | CI `o2c-ci` tests, second run | The same suite with state in Firestore and events to Pub/Sub (emulators), several instances on one database |
 | CI release gate (`O2CReleaseGate`, seven stages) | Secret scan, tests, strict conformance, compile, RAG golden set (10 cases), red-team (injections, PII, entitlements), rollout record |
 | CI `terraform` | `fmt`, `validate`, `terraform test` with a mock provider (`gcp.tftest.hcl`) |
@@ -424,14 +429,14 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 
 | # | Item | Kind | Notes |
 |---|---|---|---|
-| G-1 | Calls to settlement-service and reconciliation-service carry `X-Tenant-Id` only, with no service credential | Gap (security) | Pairs with settlement G-1 and reconciliation G-3. Add workload identity federation or a signed service token, verified at the other side. |
+| G-1 | Calls to settlement-service and reconciliation-service carried `X-Tenant-Id` only, with no service credential | Fixed (SI-01) | A Google ID token exchanged for an Entra token per target (Section 5.6); the exception query uses reconciliation's service route. Not yet run against live clouds. |
 | G-2 | PAYMENT_UNKNOWN orders are recovered only on request (`POST …/recover`) | Gap (operations) | A scheduled job (like the events schedule) could call recovery for orders older than a timeout |
 | G-3 | A crash inside the order saga left an order recovery could not finish: stock reserved with no order (lost), or an order in PENDING_PAYMENT after the money moved. A `409` from settlement-service was taken as a decline. | Fixed | Order recorded RESERVING first; keyed stock changes; `advance_order` shared by the request and recovery; recovery takes RESERVING and PENDING_PAYMENT; `409` is UNKNOWN; RECOVERY_REQUIRED names the order (`test_order_recovery.py`, on memory and on the emulators) |
 | G-12 | A crash after the claim but before the order is recorded leaves the claim with nothing to recover | Gap (minor) | Nothing moved. With a derived key the same order by the same user stays RECOVERY_REQUIRED; a recovery path for claims without an order, or a client `Idempotency-Key`, avoids it |
-| G-13 | E2A's `BaseWorkflow` settles the claim in `finally`, so a `BaseException` (task cancellation, `SystemExit`) inside a step completes it as SUCCEEDED with a partial result | Gap (E2A) | In the hub's E2A backlog. A hard kill leaves the claim IN_PROGRESS as designed; only in-process cancellation is affected |
+| G-13 | E2A's `BaseWorkflow` settled the claim in `finally`, so a `BaseException` inside a step completed it as SUCCEEDED | Fixed in E2A v1.8.0 | The claim is left IN_PROGRESS for recovery |
 | G-4 | The policy index is in process memory, rebuilt at start-up, and only for the catalog's tenant (`acme`) | Limit | Fine for three documents; a hosted index per tenant for a real corpus |
 | G-5 | Single tenant reference data: one `catalog.yaml` | Limit | A catalog per tenant (or a product and customer service) for multi-tenant use |
-| G-6 | The Secret Manager secret `…-app` from the A2C scaffold is not read by the code | Note | Remove, or use for a downstream credential (G-1) |
+| G-6 | The Secret Manager secret `…-app` from the A2C scaffold is not read by the code | Note | G-1 needed no secret; remove it, or keep it for a future credential |
 | G-7 | The subscription `…-events-sub` has no consumer in the landscape | Note | Events are available; settlement or analytics consumers are future work |
 | G-8 | `/internal/events/publish` and `/api/v1/usage` have no caller check in the service | Note | Not routed by API Gateway, so only direct Cloud Run invokers reach them; a role check would make that explicit |
 | G-9 | Cloud Run ingress is `INGRESS_TRAFFIC_ALL` | Note | Protected by IAM invokers; internal ingress plus the gateway would narrow it further |
