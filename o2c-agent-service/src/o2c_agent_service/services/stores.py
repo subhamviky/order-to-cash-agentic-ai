@@ -50,7 +50,12 @@ class OrderStore:
 
 
 class InventoryStore:
-    """Available stock per SKU. reserve() and release() are compare-and-set loops."""
+    """Available stock per SKU. reserve() and release() are compare-and-set loops.
+
+    A change may carry a key (the order's ``ORD-...:reserve`` / ``ORD-...:release``). The key is
+    recorded in the stock document in the same compare-and-set as the change, so repeating a keyed
+    change does nothing: a resumed order saga can never reserve or release twice. forget() drops
+    the keys once the order is final, so the document stays small."""
 
     def __init__(self, initial: dict, db: Optional[BaseTransactionalStore] = None) -> None:
         self._db = db or InMemoryTransactionalStore()
@@ -63,21 +68,43 @@ class InventoryStore:
         row = self._db.get(f"stock:{sku}")
         return int(row["available"]) if row else 0
 
-    def reserve(self, sku: str, quantity: int) -> bool:
+    def applied(self, sku: str) -> dict:
+        """The keyed changes not yet forgotten: {key: change}."""
+        row = self._db.get(f"stock:{sku}")
+        return dict((row or {}).get("applied", {}))
+
+    def reserve(self, sku: str, quantity: int, key: Optional[str] = None) -> bool:
+        return self._change(sku, -quantity, key)
+
+    def release(self, sku: str, quantity: int, key: Optional[str] = None) -> None:
+        self._change(sku, quantity, key)
+
+    def forget(self, sku: str, *keys: str) -> None:
         while True:
             value, version = self._db.get_versioned(f"stock:{sku}") or (None, None)
-            if value is None or value["available"] < quantity:
-                return False
-            if self._db.put_if_version(f"stock:{sku}", {"available": value["available"] - quantity},
-                                       version).committed:
-                return True
-
-    def release(self, sku: str, quantity: int) -> None:
-        while True:
-            value, version = self._db.get_versioned(f"stock:{sku}")
-            if self._db.put_if_version(f"stock:{sku}", {"available": value["available"] + quantity},
-                                       version).committed:
+            applied = dict((value or {}).get("applied", {}))
+            if value is None or not any(k in applied for k in keys):
                 return
+            for k in keys:
+                applied.pop(k, None)
+            if self._db.put_if_version(f"stock:{sku}", dict(value, applied=applied), version).committed:
+                return
+
+    def _change(self, sku: str, delta: int, key: Optional[str]) -> bool:
+        while True:
+            value, version = self._db.get_versioned(f"stock:{sku}") or (None, None)
+            if value is None:
+                return False
+            applied = dict(value.get("applied", {}))
+            if key is not None and key in applied:
+                return True                                # this change was already made
+            if value["available"] + delta < 0:
+                return False
+            if key is not None:
+                applied[key] = delta
+            row = {"available": value["available"] + delta, **({"applied": applied} if applied else {})}
+            if self._db.put_if_version(f"stock:{sku}", row, version).committed:
+                return True
 
 
 class ApprovalStore(BaseCheckpointStore):

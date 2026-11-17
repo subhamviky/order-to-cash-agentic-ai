@@ -74,7 +74,8 @@ class LocalTool(BaseToolService):
 
     async def _send_request(self, endpoint, body, token=None, timeout=None, config=None, **kwargs):
         body = dict(body)
-        return self.fn(dict(body, tenant_id=body.get("tenant_id") or kwargs["tenant_id"]))
+        return self.fn(dict(body, tenant_id=body.get("tenant_id") or kwargs["tenant_id"],
+                            idempotency_key=kwargs.get("idempotency_key")))
 
 
 def settlement_tools(base_url: str, transport=None) -> Dict[str, HttpJsonTool]:
@@ -83,7 +84,9 @@ def settlement_tools(base_url: str, transport=None) -> Dict[str, HttpJsonTool]:
         # Material: money moves. Replay-safe because settlement-service de-duplicates on Idempotency-Key.
         "submit_settlement": HttpJsonTool(
             "submit_settlement", base_url, "POST", "/api/v1/settlements", required=("json",),
-            success=completed, definitive=lambda status, body: status in (201, 400, 404, 409, 422),
+            success=completed, # 409 is NOT definitive: settlement-service answers it while the same key is still
+            # in progress there (e.g. after its own crash), so the outcome is UNKNOWN: park, recover.
+            definitive=lambda status, body: status in (201, 400, 404, 422),
             transport=transport, material=True),
         "get_settlement": HttpJsonTool(
             "get_settlement", base_url, "GET", "/api/v1/settlements/{settlement_id}",

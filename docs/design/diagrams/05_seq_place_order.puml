@@ -30,14 +30,15 @@ WF -> WF : _authorize_decision: role finance-approver,\nnot the requester (four 
 WF -> FS : ApprovalStore.decide: PENDING -> APPROVED (CAS)
 WF -> EX : _act(io_modify)
 EX -> EX : credit limit check (refuse: REFUSED)
-EX -> FS : reserve_stock (key ORD-...:reserve, CAS loop)
-EX -> FS : OrderStore.create (PENDING_PAYMENT + order.placed)
+EX -> FS : OrderStore.create (RESERVING, no event)
+EX -> FS : reserve_stock (key ORD-...:reserve recorded with the change)
+EX -> FS : update PENDING_PAYMENT + order.placed
 EX -> SET : POST /api/v1/settlements\nIdempotency-Key = order id
 alt 201 COMPLETED
   EX -> FS : update PAID + order.paid
-else 4xx / COMPENSATED
+else 4xx (not 409) / COMPENSATED
   EX -> FS : release_stock; CANCELLED + order.cancelled
-else timeout / 5xx after retries
+else timeout / 5xx after retries / 409
   EX -> FS : PAYMENT_UNKNOWN + order.payment_unknown; claim parked
 end
 WF -> FS : claim completed with the replayable result

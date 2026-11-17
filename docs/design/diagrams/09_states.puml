@@ -2,13 +2,16 @@
 !include ../common/style.puml
 title Order and approval states
 state "Order" as O {
-  [*] --> REFUSED : credit limit / insufficient stock
-  [*] --> PENDING_PAYMENT : stock reserved, order created
+  [*] --> REFUSED : credit limit
+  [*] --> RESERVING : order recorded (no event)
+  RESERVING --> PENDING_PAYMENT : stock reserved (ORD-...:reserve)
+  RESERVING --> REFUSED : insufficient stock
   PENDING_PAYMENT --> PAID : settlement COMMITTED
   PENDING_PAYMENT --> CANCELLED : settlement NOT_COMMITTED\n(stock released)
   PENDING_PAYMENT --> PAYMENT_UNKNOWN : no definitive answer
   PAYMENT_UNKNOWN --> PAID : recovery, same key
   PAYMENT_UNKNOWN --> CANCELLED : recovery, declined
+  note right of RESERVING : after a crash, recovery\ncontinues from RESERVING,\nPENDING_PAYMENT or\nPAYMENT_UNKNOWN with the same keys
 }
 state "Approval (checkpoint)" as AP {
   [*] --> PENDING : amount > threshold

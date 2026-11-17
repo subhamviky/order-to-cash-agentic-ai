@@ -1,6 +1,6 @@
 @startuml
 !include ../common/style.puml
-title Recovering an order whose payment outcome is UNKNOWN
+title Recovering an unfinished order (RESERVING, PENDING_PAYMENT, PAYMENT_UNKNOWN)
 autonumber "<b>0."
 actor Ops as "Operations"
 participant A as "O2CAssistant"
@@ -9,14 +9,17 @@ database FS as "Firestore"
 participant SET as "settlement-service"
 Ops -> A : POST /api/v1/orders/{id}/recover
 A -> R : reconcile(tenant, order_id)
-R -> R : _fetch_dlq_entries: the order, if PAYMENT_UNKNOWN
-R -> FS : take over the parked claim (recover=True)
+R -> R : _fetch_dlq_entries: the order, if not final
+R -> FS : take over the claim (recover=True):\nonly if parked or its lease expired
+opt RESERVING
+  R -> FS : reserve_stock (ORD-...:reserve): a no-op if already made
+end
 R -> SET : POST /api/v1/settlements (SAME Idempotency-Key = order id)
 SET --> R : the original result (de-duplicated)
 alt COMMITTED
   R -> FS : order PAID + order.paid; claim completed\n(a repeat of the order is REPLAYED)
 else NOT_COMMITTED
-  R -> FS : release_stock; order CANCELLED + order.cancelled
+  R -> FS : release_stock (ORD-...:release, made once); order CANCELLED
   R -> R : _replay_dlq_entry: true (final, nothing re-sent)
 else UNKNOWN
   R -> FS : claim stays parked; order stays PAYMENT_UNKNOWN
