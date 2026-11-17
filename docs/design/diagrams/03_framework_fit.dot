@@ -1,0 +1,18 @@
+digraph G {
+  graph [rankdir=LR, compound=true, fontname="DejaVu Sans", fontsize=13, labelloc=t, label=<<b>How the framework family is used</b>>, fontcolor="#1F3864", nodesep=0.35, ranksep=0.6, pad=0.25];
+  node [shape=box, style="rounded,filled", fillcolor="#F4F8FC", color="#1F3864", fontname="DejaVu Sans", fontsize=10, fontcolor="#1F3864", margin="0.12,0.05"];
+  edge [color="#2E4A6B", fontname="DejaVu Sans", fontsize=9];
+  subgraph cluster_o { label=<<b>o2c-agent-service (Python 3.12, FastAPI)</b>>; style="rounded,filled"; fillcolor="#EAF2FA"; color="#2E75B6";
+    a1 [label="RouterAgent (G2C skeleton) · OrderIntakeAgent\nOrderExecutionAgent · FinanceAgent · KnowledgeAgent"];
+    a2 [label="O2CWorkflow · O2CGovernance · O2CValidationService\nO2CRecovery · O2CMCPServer"];
+    a3 [label="PolicyRAGPipeline · PolicyIndexingPipeline\nHttpJsonTool · LocalTool"];
+    a4 [label="OrderStore · InventoryStore · ApprovalStore\nPagedIndex · O2CReleaseGate"];
+    a5 [label="P0 scaffold: pyproject, main.py, Dockerfile\nA2C: infra/*.tf and its test"];
+  }
+  e [label="E2A v1.7.5\nBaseAgent · BaseWorkflow (Steps, Route, resume)\nBaseGovernanceFramework + stages · BaseValidationService\nBaseRAGPipeline · BaseToolService · BaseMCPServer\nBaseReconciliationService · BrokerOutboxSweeper\nProjectReleaseGate · SimulatedLLMService", fillcolor="#E6F4F5", color="#0F7C8C", fontcolor="#0F5C66"];
+  ad [label="e2a-adapters 1.7.5 [gcp]\nFirestore transactional, idempotency, outbox stores\nFirestoreLease · PubSubBroker · identity_at_ingress", fillcolor="#E6F4F5", color="#0F7C8C", fontcolor="#0F5C66"];
+  a2c [label="AI-DLC / P0 / G2C / A2C\naidlc/requests/o2c-agent-service.json", fillcolor="#E6F4F5", color="#0F7C8C", fontcolor="#0F5C66"];
+  mp [label="e2a-managed-providers (optional)\nllm_service by profile\n(google_vertex, anthropic_bedrock, ...)", fillcolor="#F2F2F2", color="#7F7F7F"];
+  dsa [label="capability-oriented-dsa v0.2.0\nSEQUENCE · TOP_K (re-ranking)", fillcolor="#F2F2F2", color="#7F7F7F"];
+  a1 -> e; a2 -> e; a3 -> e; a4 -> ad; a5 -> a2c; a3 -> dsa; a1 -> mp [style=dashed];
+}

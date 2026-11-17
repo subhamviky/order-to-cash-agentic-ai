@@ -33,6 +33,10 @@ This repository went through three stages. Each one is kept, so the path can be 
 
 **Its place in the landscape:** places orders as settlements in [financial-settlement-platform](https://github.com/subhamviky/financial-settlement-platform) and reads open exceptions from [aws-reconciliation-engine](https://github.com/subhamviky/aws-reconciliation-engine). The `landscape-demo` workflow runs all three projects together in sixteen checked steps, from an order in plain language to a write-off in the settlement ledger.
 
+## Design
+
+The full design (HLD and LLD) of `o2c-agent-service` is in [`docs/design/`](docs/design/README.md): [Markdown](docs/design/O2C_DESIGN.md) with diagrams, and a [Word copy](docs/design/O2C_Design_Document.docx).
+
 ## Evidence
 
 Verified in CI (`o2c-ci`) on every push: the test suite, the AI-DLC release gate, Terraform `fmt`/`validate`/`test`, and the container image. `landscape-demo` runs the three projects together on demand. This is an architecture reference implementation: no real model, no deployment, no production claims.

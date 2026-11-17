@@ -1,0 +1,26 @@
+digraph G {
+  graph [rankdir=LR, fontname="DejaVu Sans", fontsize=13, labelloc=t, label=<<b>Deployment on Google Cloud (infra/*.tf, api-gateway/openapi.yaml)</b>>, fontcolor="#1F3864", nodesep=0.35, ranksep=0.7, pad=0.25];
+  node [shape=box, style="rounded,filled", fillcolor="#F4F8FC", color="#1F3864", fontname="DejaVu Sans", fontsize=10, fontcolor="#1F3864", margin="0.12,0.05"];
+  edge [color="#2E4A6B", fontname="DejaVu Sans", fontsize=9];
+  client [label="Client\n(Identity Platform token)", fillcolor="#FBF3E6", color="#D4A017"];
+  subgraph cluster_p { label=<<b>Google Cloud project (one stack per environment)</b>>; style="rounded,filled"; fillcolor="#EAF2FA"; color="#2E75B6";
+    gw [label="API Gateway\n(openapi.yaml, deployed with gcloud)\nfirebase securityDefinitions"];
+    run [label="Cloud Run v2: o2c-agent-service-ENV\n0..max_instance_count (3)\nruntime service account"];
+    ar [label="Artifact Registry\nDOCKER repository"];
+    fs [label="Firestore (native, OPTIMISTIC)\nPITR · delete protection · TTL field\ncollection o2c"];
+    top [label="Pub/Sub: ...-events\nsubscription ...-events-sub"];
+    dlq [label="Pub/Sub: ...-dlq\n(dead letters)"];
+    sm [label="Secret Manager: ...-app\n(accessor granted; unused)", fillcolor="#F2F2F2", color="#7F7F7F"];
+    sch [label="Cloud Scheduler job\nevery minute, OIDC token"];
+    ssa [label="scheduler service account"];
+  }
+  client -> gw [label="HTTPS"];
+  gw -> run [label="run.invoker\n(invoker_members)"];
+  ar -> run [label="image", style=dashed];
+  run -> fs [label="datastore.user\n(this database only)"];
+  run -> top [label="pubsub.publisher"];
+  top -> dlq [label="max_delivery_attempts"];
+  run -> sm [style=dashed];
+  sch -> run [label="POST /internal/events/publish"];
+  ssa -> sch [style=dashed, label="identity"];
+}

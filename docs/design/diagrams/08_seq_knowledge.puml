@@ -1,0 +1,28 @@
+@startuml
+!include ../common/style.puml
+title A policy question: firewall, hybrid retrieval, grounded answer
+autonumber "<b>0."
+actor User as "Viewer"
+participant WF as "O2CWorkflow"
+participant G as "Governance stages"
+participant K as "KnowledgeAgent"
+participant RAG as "PolicyRAGPipeline"
+participant IDX as "PolicyIndex\n(BM25 + vectors)"
+participant DSA as "DSAFacade"
+participant LLM as "llm_service\n(simulated or managed)"
+User -> WF : "What is the approval threshold?"
+WF -> G : firewall (injection, length), redaction, entitlement
+WF -> K : route -> POLICY_QUESTION (no claim: not material)
+K -> RAG : retrieve(query, rerank_top_n=3)
+RAG -> IDX : search: BM25 leg + vector leg, RRF
+RAG -> DSA : SEQUENCE / QUERY / TOP_K (k=3)
+K -> LLM : messages with [POL-...] context
+LLM --> K : one sentence citing a policy id
+K -> RAG : evaluate_answer(): groundedness
+alt score >= min_confidence (0.85)
+  K --> WF : answer, citations
+else
+  K --> WF : fallback: "no O2C policy answers this" (degraded)
+end
+WF -> G : RedactionStage on egress
+@enduml

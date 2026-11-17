@@ -1,0 +1,25 @@
+@startuml
+!include ../common/style.puml
+title Recovering an order whose payment outcome is UNKNOWN
+autonumber "<b>0."
+actor Ops as "Operations"
+participant A as "O2CAssistant"
+participant R as "O2CRecovery\n(BaseReconciliationService)"
+database FS as "Firestore"
+participant SET as "settlement-service"
+Ops -> A : POST /api/v1/orders/{id}/recover
+A -> R : reconcile(tenant, order_id)
+R -> R : _fetch_dlq_entries: the order, if PAYMENT_UNKNOWN
+R -> FS : take over the parked claim (recover=True)
+R -> SET : POST /api/v1/settlements (SAME Idempotency-Key = order id)
+SET --> R : the original result (de-duplicated)
+alt COMMITTED
+  R -> FS : order PAID + order.paid; claim completed\n(a repeat of the order is REPLAYED)
+else NOT_COMMITTED
+  R -> FS : release_stock; order CANCELLED + order.cancelled
+  R -> R : _replay_dlq_entry: true (final, nothing re-sent)
+else UNKNOWN
+  R -> FS : claim stays parked; order stays PAYMENT_UNKNOWN
+end
+A --> Ops : the order
+@enduml
