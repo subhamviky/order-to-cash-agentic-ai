@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 Intent = Literal["PLACE_ORDER", "ORDER_STATUS", "PAYMENT_EXCEPTIONS", "POLICY_QUESTION", "UNSUPPORTED"]
-OrderStatus = Literal["PENDING_PAYMENT", "PAID", "CANCELLED", "PAYMENT_UNKNOWN", "REFUSED"]
+# RESERVING: recorded before any stock moves, so a crash after that point leaves an order to recover
+OrderStatus = Literal["RESERVING", "PENDING_PAYMENT", "PAID", "CANCELLED", "PAYMENT_UNKNOWN", "REFUSED"]
 
 
 class AssistantRequest(BaseModel):

@@ -22,6 +22,7 @@ class FakeSettlementService:
         self.posts = 0
         self.fail_next = 0             # answer 503 before committing anything
         self.answer_delay = 0.0        # commit, then answer late (every answer, replays too)
+        self.in_progress_next = 0      # answer 409 "still in progress" (its own request is unfinished)
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self._handle)
@@ -34,6 +35,9 @@ class FakeSettlementService:
         if self.fail_next:
             self.fail_next -= 1
             return httpx.Response(503, json={"error": "unavailable"})
+        if self.in_progress_next:
+            self.in_progress_next -= 1
+            return httpx.Response(409, json={"error": "A request with this Idempotency-Key is still in progress"})
         key = request.headers.get("Idempotency-Key")
         replayed = key in self.by_key
         if not replayed:

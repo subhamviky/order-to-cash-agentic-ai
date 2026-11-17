@@ -4,7 +4,7 @@ handle():            validate the request, then O2CWorkflow.execute(): route -> 
                      intake) -> the specialist, every step behind the governance stages.
 approve() / reject(): a finance approver's decision. O2CWorkflow.resume() continues the
                      paused order at its step, under the same idempotency key, exactly once.
-recover():           an order whose payment outcome is UNKNOWN, through
+recover():           an unfinished order (payment UNKNOWN, or a saga a crash stopped), through
                      O2CRecovery.reconcile() (E2A BaseReconciliationService).
 """
 from pathlib import Path
@@ -15,7 +15,7 @@ from e2a_simulated_llm import SimulatedLLMService
 
 from ..agents.finance_agent import FinanceAgent
 from ..agents.knowledge_agent import KnowledgeAgent
-from ..agents.order_execution_agent import OrderExecutionAgent
+from ..agents.order_execution_agent import OrderExecutionAgent, order_id_for
 from ..agents.order_intake_agent import OrderIntakeAgent
 from ..agents.router_agent import RouterAgent
 from ..models.schemas import AssistantResponse, Order
@@ -74,10 +74,10 @@ class O2CAssistant:
 
         finance = FinanceAgent()
         self.workflow = O2CWorkflow(self.policy, RouterAgent(), OrderIntakeAgent(self.catalog), {
-            "PLACE_ORDER": OrderExecutionAgent(self.catalog, self.orders),
+            "PLACE_ORDER": OrderExecutionAgent(self.catalog, self.orders, self.inventory),
             "ORDER_STATUS": finance, "PAYMENT_EXCEPTIONS": finance,
             "POLICY_QUESTION": KnowledgeAgent(self.rag)})
-        self.recovery = O2CRecovery(self.orders, self.catalog, self.policy, self.store)
+        self.recovery = O2CRecovery(self.orders, self.inventory, self.catalog, self.policy, self.store)
 
     # ------------------------------------------------------------------ capabilities
     def handle(self, text: str, tenant_id: str, user_id: str, role: str,
@@ -167,6 +167,10 @@ class O2CAssistant:
                                 approval_id=state["checkpoint_id"])
         if state.get("errors") and not order:
             status = "FAILED"
+        if status == "RECOVERY_REQUIRED" and state.get("intent") == "PLACE_ORDER" and state.get("idempotency_key"):
+            order_id = order_id_for(state["idempotency_key"])
+            return self._answer(state, status, f"Order {order_id} did not finish (recovery required); it is "
+                                               f"finished with POST /api/v1/orders/{order_id}/recover.")
         if status in ("CONFLICT", "IN_PROGRESS", "RECOVERY_REQUIRED", "FAILED_FINAL", "FAILED"):
             return self._answer(state, status, f"The request was not executed ({status.lower().replace('_', ' ')}).")
         if order:

@@ -14,12 +14,12 @@ def local_tools(inventory: InventoryStore, orders: OrderStore) -> Dict[str, Loca
                 "sku": p["sku"], "available": inventory.available(p["sku"])}
 
     def reserve_stock(p):
-        ok = inventory.reserve(p["sku"], int(p["quantity"]))
+        ok = inventory.reserve(p["sku"], int(p["quantity"]), key=p.get("idempotency_key"))
         return {"physical_success": ok,
                 "outcome": PhysicalOutcome.COMMITTED if ok else PhysicalOutcome.NOT_COMMITTED}
 
     def release_stock(p):
-        inventory.release(p["sku"], int(p["quantity"]))
+        inventory.release(p["sku"], int(p["quantity"]), key=p.get("idempotency_key"))
         return {"physical_success": True, "outcome": PhysicalOutcome.COMMITTED}
 
     def get_order(p):

@@ -9,7 +9,7 @@
 | Project | `order-to-cash-agentic-ai` — service `o2c-agent-service` |
 | Document type | Design Document (HLD + LLD) |
 | Author | Subham Gupta, Principal Platform Architect |
-| Source baseline | `subhamviky/order-to-cash-agentic-ai` `main` at `68a9a32`:<ul><li>**o2c-agent-service:** Python 3.12, FastAPI, about 2,070 lines in 38 modules; `policies/`, `knowledge/`, `evals/`; 10 test modules with 51 test functions.</li><li>**Built on:** **E2A v1.7.5** and **e2a-adapters 1.7.5** `[gcp]`; `capability-oriented-dsa` v0.2.0.</li><li>**Infrastructure:** `infra/*.tf` (Google Cloud), `infra/api-gateway/openapi.yaml`, `infra/tests/gcp.tftest.hcl`.</li></ul> |
+| Source baseline | `subhamviky/order-to-cash-agentic-ai` `main` at `68a9a32`:<ul><li>**o2c-agent-service:** Python 3.12, FastAPI, about 2,070 lines in 38 modules; `policies/`, `knowledge/`, `evals/`; 11 test modules with 57 test functions.</li><li>**Built on:** **E2A v1.7.5** and **e2a-adapters 1.7.5** `[gcp]`; `capability-oriented-dsa` v0.2.0.</li><li>**Infrastructure:** `infra/*.tf` (Google Cloud), `infra/api-gateway/openapi.yaml`, `infra/tests/gcp.tftest.hcl`.</li></ul> |
 | Date | 16 November 2026 |
 | Status | Describes the code on `main`. Section 14 lists where the code and the original requirements differ, and the open gaps. |
 
@@ -79,7 +79,7 @@ The original spike was a LangGraph state machine on Amazon Bedrock with OpenSear
 | BR-4 Intake | `OrderIntakeAgent` with `OrderRequest` (quantity 1–1,000) and the catalog | 8.1 |
 | BR-5 Pricing | `Catalog.price` (Decimal, quantized), never the model | 8.1 |
 | BR-6 Approval and four eyes | `ApprovalStage`, `ApprovalStore` (checkpoints), `O2CWorkflow._authorize_decision` | 9.1 |
-| BR-7 Order saga | `OrderExecutionAgent._act`: credit → reserve → settlement; `apply_settlement_result` releases the stock | 9.1 |
+| BR-7 Order saga | `OrderExecutionAgent._act` and `advance_order`: credit → order RESERVING → reserve → settlement; `apply_settlement_result` releases the stock; resumable from any status | 9.1, 9.2 |
 | BR-8 Exactly one charge | E2A idempotency claim in `BaseWorkflow.execute`; settlement `Idempotency-Key` = order id | 10 |
 | BR-9 Typed outcomes | `HttpJsonTool` maps HTTP to COMMITTED / NOT_COMMITTED / UNKNOWN; `O2CRecovery` | 9.2, 10 |
 | BR-10 Tool allow-list | `O2CGovernance.tool_policy`, applied by `io_read` / `io_modify` | 8.1 |
@@ -151,7 +151,7 @@ Sections 5 to 13 describe this current state; Section 14 records the remaining d
 |---|---|---|
 | I-1 | An order is executed at most once per idempotency key; the same key with a different order is a CONFLICT. | E2A claim with `_request_fingerprint` (business content only) |
 | I-2 | A customer is charged at most once per order. | settlement `Idempotency-Key` = order id, also on recovery |
-| I-3 | Stock never goes below zero. | `InventoryStore.reserve`: compare-and-set loop that refuses when insufficient |
+| I-3 | Stock never goes below zero, and is never reserved or released twice for one order. | `InventoryStore`: compare-and-set loops; a keyed change records its key in the same write and is not repeated |
 | I-4 | A declined payment never keeps stock. | `apply_settlement_result` → `release_stock` |
 | I-5 | Nothing is reserved or charged before a required approval. | `ApprovalStage` runs after `_prepare` and before `_act` |
 | I-6 | An approval is decided once, by a finance approver who is not the requester. | `ApprovalStore.decide` (CAS on PENDING), `_authorize_decision` |
@@ -192,7 +192,7 @@ Sections 5 to 13 describe this current state; Section 14 records the remaining d
 | `O2CGovernance`, `EntitlementStage`, `O2CValidationService` | Stages, tool allow-list, schema and entitlement checks |
 | `HttpJsonTool`, `LocalTool`, `O2CMCPServer` | Governed tools; the read-only tools over MCP |
 | `OrderStore`, `InventoryStore`, `ApprovalStore`, `PagedIndex` | State on an E2A transactional store, with the outbox |
-| `O2CRecovery` | PAYMENT_UNKNOWN orders, resolved with the same key |
+| `O2CRecovery` | Unfinished orders (RESERVING, PENDING_PAYMENT, PAYMENT_UNKNOWN), finished with the same keys |
 | `BrokerOutboxSweeper` (E2A) | Publishes pending order events under a lease |
 | `O2CReleaseGate` | AI-DLC release gate: RAG golden set, red-team probes |
 
@@ -213,7 +213,7 @@ Sections 5 to 13 describe this current state; Section 14 records the remaining d
 
 | Interface | Direction | Contract |
 |---|---|---|
-| `POST /api/v1/settlements` | O2C → settlement-service | `{payerAccount, payeeAccount, amount, currency}`, headers `X-Tenant-Id`, `Idempotency-Key` = order id. Success: `201` with status COMPLETED. Definitive: `201` (COMPENSATED), `400`, `404`, `409`, `422`. `5xx` or no answer: UNKNOWN. |
+| `POST /api/v1/settlements` | O2C → settlement-service | `{payerAccount, payeeAccount, amount, currency}`, headers `X-Tenant-Id`, `Idempotency-Key` = order id. Success: `201` with status COMPLETED. Definitive: `201` (COMPENSATED), `400`, `404`, `422`. `409` (the same key still in progress at settlement-service), `5xx` or no answer: UNKNOWN. |
 | `GET /api/v1/settlements/{id}` | O2C → settlement-service | Settlement view (status) for UC-3 |
 | `GET /api/v1/exceptions?status=OPEN` | O2C → reconciliation-service | Cases with `line_id`, `kind`, `detail`, `proposal.action` |
 | Order events | O2C → Pub/Sub topic | Body: `event_type` plus `order_id`, `tenant_id`, `customer_id`, `sku`, `quantity`, `amount`, `currency`, `status`, `settlement_id`, `reason`. Attributes `event_type`, `order_id`. Idempotency key `order_id:status`. |
@@ -249,7 +249,7 @@ All state is on two E2A ports chosen by `O2C_STATE_BACKEND`: a `BaseTransactiona
 | Document | Key | Content and rules |
 |---|---|---|
 | Order | `order:<order_id>` | `Order`: tenant, customer, sku, quantity, amount, currency, status, requester, approver, idempotency key, settlement id and status, reason. `create` is insert-once; `update` is a compare-and-set that fails on a concurrent change. |
-| Stock | `stock:<sku>` | `{available}`. Created if absent at start-up, so a restart never resets reserved stock. |
+| Stock | `stock:<sku>` | `{available, applied}`. `applied` holds the keys (`ORD-…:reserve`, `ORD-…:release`) of changes made for orders not yet final, written in the same compare-and-set as the change; dropped when the order is final. Created if absent at start-up, so a restart never resets reserved stock. |
 | Approval | `approval:<checkpoint_id>` | `{approval, checkpoint}`: the `Approval` (requester, order request, amount, key, status, decider, dehydrated state) and E2A's checkpoint |
 | Approval index | `approvals:<tenant>:head`, `…:page:<n>` | `PagedIndex`: pages of 500 ids, compare-and-set appends; keeps every document below Firestore's size limit |
 | Idempotency claim | E2A layout | One per tenant and key: fingerprint, state (IN_PROGRESS, SUCCEEDED, UNKNOWN …), owner, expiry, replayable result |
@@ -290,7 +290,7 @@ All state is on two E2A ports chosen by `O2C_STATE_BACKEND`: a `BaseTransactiona
 | `O2CWorkflow` (`BaseWorkflow`) | `_build_workflow`, `_generate_idempotency_key`, `_requires_idempotency_claim`, `_request_fingerprint`, `_authorize_decision`, `_handle_error` | <ul><li>Steps: `route` (stops on UNSUPPORTED); `intake` only for PLACE_ORDER (stops when incomplete); `act` routed by intent, material.</li><li>A claim only for PLACE_ORDER. Fingerprint = tenant, user and order request.</li><li>Decisions: role `finance-approver` and, with `four_eyes`, not the requester; otherwise `ResumeRefused` code `DECIDER_REFUSED`.</li></ul> |
 | `RouterAgent` (`BaseAgent`) | `_build_messages`, `_apply_policy`, `_evaluate_output`, `_fallback`, `_handle_error` | JSON `{"intent"}` with one of PLACE_ORDER, ORDER_STATUS, PAYMENT_EXCEPTIONS, POLICY_QUESTION, UNSUPPORTED scores 1.0; anything else 0.0; fallback and errors → UNSUPPORTED |
 | `OrderIntakeAgent` | `_build_messages`, `_evaluate_output`, `_fallback`, `_handle_error` | Accepted only when it parses, validates as `OrderRequest` and names a known customer and SKU; otherwise `missing` is set and nothing happens |
-| `OrderExecutionAgent` | `_prepare`, `_build_messages` (None), `_act` | `_prepare` prices from the catalog. `_act`: credit limit (REFUSED, NOT_COMMITTED) → `reserve_stock` (REFUSED if insufficient) → create PENDING_PAYMENT → `submit_settlement` → `apply_settlement_result`. Returns the typed outcomes; E2A confirms UNKNOWN > NOT_COMMITTED > COMMITTED. |
+| `OrderExecutionAgent` | `_prepare`, `_build_messages` (None), `_act` | `_prepare` prices from the catalog. `_act`: credit limit (REFUSED, NOT_COMMITTED) → create the order RESERVING (no event) → `advance_order`. `advance_order` continues from the order's status: RESERVING → `reserve_stock` (`ORD-…:reserve`) → PENDING_PAYMENT (`order.placed`) or REFUSED; PENDING_PAYMENT or PAYMENT_UNKNOWN → `submit_settlement` (key = order id) → `apply_settlement_result`; final → forget the stock keys. Returns the typed outcomes; E2A confirms UNKNOWN > NOT_COMMITTED > COMMITTED. |
 | `FinanceAgent` | `_apply_policy`, `_prepare(io_read)`, `_build_messages`, `_evaluate_output`, `_fallback` | Facts read before the model (`get_order`, `get_settlement`, `open_exceptions`). Any `ORD-…`, UUID, amount or upper-case status in the answer that is not in the facts → 0.0; the fallback is the facts. |
 | `KnowledgeAgent` | `_prepare`, `_build_messages`, `_evaluate_output`, `_fallback` | Retrieves three chunks; score = `evaluate_answer()`; citations = cited ids that were retrieved; fallback declines |
 | `O2CGovernance` (`BaseGovernanceFramework`) | `stages`, `tool_policy` | Stages in order: Capacity, TokenBudget, Firewall, Entitlement, Sandbox, Approval (amount > threshold), Redaction. Rebuilt from the policy on every request. |
@@ -306,10 +306,10 @@ All state is on two E2A ports chosen by `O2C_STATE_BACKEND`: a `BaseTransactiona
 | `local_tools` | `check_stock` (read), `reserve_stock` and `release_stock` (material), `get_order` (read, tenant-scoped) |
 | `O2CMCPServer` (`BaseMCPServer`) | Registers `check_stock` and `get_order` with `wrap_api_as_tool`; `_call_tool` overwrites the tenant with the caller's |
 | `OrderStore` | `create` (insert-once), `update` (CAS, raises on conflict), `get` (tenant-filtered); events in the same commit when the store has an outbox |
-| `InventoryStore` | `available`; `reserve` and `release` as compare-and-set loops |
+| `InventoryStore` | `available`, `applied`; `reserve(sku, qty, key)` and `release(sku, qty, key)` as compare-and-set loops, a keyed change made at most once; `forget(sku, *keys)` |
 | `ApprovalStore` (`BaseCheckpointStore`) | `save` (insert-once, then index), `load` (tenant-checked, with status), `decide` (PENDING → APPROVED or REJECTED, one CAS), `get`, `list` |
 | `PagedIndex` | `append` (CAS; a full page opens the next), iteration without duplicates |
-| `O2CRecovery` (`BaseReconciliationService`) | `_fetch_dlq_entries`: the order if PAYMENT_UNKNOWN. `_confirm_physical_outcome`: re-sends the settlement with the same key, applies the result, stores the replayable result. `_replay_dlq_entry`: true (a declined payment is final). |
+| `O2CRecovery` (`BaseReconciliationService`) | `_fetch_dlq_entries`: the order if RESERVING, PENDING_PAYMENT or PAYMENT_UNKNOWN. The inherited `reconcile()` takes over its claim only when the request is finished or its lease expired. `_confirm_physical_outcome`: `advance_order` with the same keys, then the outcome of the order's status, and the replayable result. `_replay_dlq_entry`: true (CANCELLED or REFUSED is final). |
 | `PolicyRAGPipeline` (`BaseRAGPipeline`) | `_rerank`: DSA `SEQUENCE`/`QUERY`/`TOP_K`. `_evaluate_answer`: share of sentences that cite a retrieved policy and whose content words (≥ 60 %) appear in it. |
 | `PolicyIndexingPipeline` (`BaseIndexingPipeline`) | `_chunk_documents`: one chunk per paragraph with a `POL-…` id; a document without one fails the ingest (start-up stops) |
 | `PolicyIndex` (`BaseVectorIndex`) | Per-tenant namespaces; upsert by chunk id; `search` = BM25 leg and cosine leg fused by reciprocal rank (k = 60), only chunks sharing a term |
@@ -336,7 +336,7 @@ All state is on two E2A ports chosen by `O2C_STATE_BACKEND`: a `BaseTransactiona
 
 A small order runs the same path without the pause: `ApprovalStage` passes and `_act` runs in the first request. A rejection decides the checkpoint REJECTED and ends: nothing was reserved or charged.
 
-### 9.2 Recovering a PAYMENT_UNKNOWN order
+### 9.2 Recovering an unfinished order
 
 ![Figure 7 — Recovery](images/06_seq_recovery.png)
 
@@ -362,7 +362,9 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 | Two orders race for the last stock | `reserve` is a CAS loop; the loser re-reads and is refused if insufficient |
 | Two approvers decide at once | `decide` is a CAS on PENDING; the second gets `403` |
 | settlement-service answers `5xx` | The resilience policy retries with the same key (`retries` 2), then UNKNOWN |
-| settlement-service times out or the answer is lost | UNKNOWN: order PAYMENT_UNKNOWN (degraded answer), claim parked (RECOVERY_REQUIRED for a repeat) until `recover` |
+| settlement-service times out, the answer is lost, or it answers `409` (the key still in progress there) | UNKNOWN: order PAYMENT_UNKNOWN (degraded answer), stock kept, claim parked (RECOVERY_REQUIRED for a repeat) until `recover` |
+| The process dies inside the saga (after the order is recorded) | The order stays RESERVING or PENDING_PAYMENT; once the claim's lease expires a repeat answers RECOVERY_REQUIRED with the order id, and `recover` finishes it with the same keys: reserved once, released once, charged once |
+| The process dies before the order is recorded (after the claim) | Nothing has moved. A repeat answers RECOVERY_REQUIRED and there is no order to recover (G-12) |
 | settlement-service declines (`4xx`, COMPENSATED) | NOT_COMMITTED: stock released under `ORD-…:release`, order CANCELLED |
 | reconciliation-service or the settlement read is down | The finance facts say so; nothing is guessed |
 | A concurrent update of an order | `OrderStore.update` raises; the workflow records FAILED |
@@ -410,7 +412,7 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 
 | Evidence | What it proves |
 |---|---|
-| Tests (10 modules, 51 test functions; downstream services as in-process fakes) | AC-1 to AC-14: routing, intake, saga, replay and conflict, credit and stock, compensation, approval and four eyes, unknown outcomes and recovery, finance and knowledge answers, governance, HTTP and MCP. Identity at ingress, order events, paged index, shared state. |
+| Tests (11 modules, 57 test functions; downstream services as in-process fakes) | AC-1 to AC-14: routing, intake, saga, replay and conflict, credit and stock, compensation, approval and four eyes, unknown outcomes and recovery, finance and knowledge answers, governance, HTTP and MCP. Identity at ingress, order events, paged index, shared state. |
 | CI `o2c-ci` tests, second run | The same suite with state in Firestore and events to Pub/Sub (emulators), several instances on one database |
 | CI release gate (`O2CReleaseGate`, seven stages) | Secret scan, tests, strict conformance, compile, RAG golden set (10 cases), red-team (injections, PII, entitlements), rollout record |
 | CI `terraform` | `fmt`, `validate`, `terraform test` with a mock provider (`gcp.tftest.hcl`) |
@@ -424,7 +426,9 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 |---|---|---|---|
 | G-1 | Calls to settlement-service and reconciliation-service carry `X-Tenant-Id` only, with no service credential | Gap (security) | Pairs with settlement G-1 and reconciliation G-3. Add workload identity federation or a signed service token, verified at the other side. |
 | G-2 | PAYMENT_UNKNOWN orders are recovered only on request (`POST …/recover`) | Gap (operations) | A scheduled job (like the events schedule) could call recovery for orders older than a timeout |
-| G-3 | Stock is reserved before the order is created; `reserve_stock` is not de-duplicated by its key. A crash between the two, followed by a retry of the same order after the claim expires, could reserve twice. | Gap (consistency) | Record the reservation under `ORD-…:reserve` in the same store (insert-once), or create the order first and reserve in the same commit |
+| G-3 | A crash inside the order saga left an order recovery could not finish: stock reserved with no order (lost), or an order in PENDING_PAYMENT after the money moved. A `409` from settlement-service was taken as a decline. | Fixed | Order recorded RESERVING first; keyed stock changes; `advance_order` shared by the request and recovery; recovery takes RESERVING and PENDING_PAYMENT; `409` is UNKNOWN; RECOVERY_REQUIRED names the order (`test_order_recovery.py`, on memory and on the emulators) |
+| G-12 | A crash after the claim but before the order is recorded leaves the claim with nothing to recover | Gap (minor) | Nothing moved. With a derived key the same order by the same user stays RECOVERY_REQUIRED; a recovery path for claims without an order, or a client `Idempotency-Key`, avoids it |
+| G-13 | E2A's `BaseWorkflow` settles the claim in `finally`, so a `BaseException` (task cancellation, `SystemExit`) inside a step completes it as SUCCEEDED with a partial result | Gap (E2A) | In the hub's E2A backlog. A hard kill leaves the claim IN_PROGRESS as designed; only in-process cancellation is affected |
 | G-4 | The policy index is in process memory, rebuilt at start-up, and only for the catalog's tenant (`acme`) | Limit | Fine for three documents; a hosted index per tenant for a real corpus |
 | G-5 | Single tenant reference data: one `catalog.yaml` | Limit | A catalog per tenant (or a product and customer service) for multi-tenant use |
 | G-6 | The Secret Manager secret `…-app` from the A2C scaffold is not read by the code | Note | Remove, or use for a downstream credential (G-1) |

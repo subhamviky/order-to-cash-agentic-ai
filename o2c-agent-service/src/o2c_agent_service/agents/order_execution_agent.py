@@ -3,10 +3,20 @@
 _prepare prices the order (a read); the governance stages then decide whether a human
 must approve it (the workflow pauses and resume() continues here). There is no model
 step: _act runs the saga through io_modify, every material call with its own
-idempotency key: credit check -> reserve stock -> settlement. A failed settlement
-releases the stock (compensation); a lost answer is UNKNOWN and the claim is parked for
-recovery. The typed outcomes, never a text, decide the result (E2A _confirm: UNKNOWN >
-NOT_COMMITTED > COMMITTED).
+idempotency key. The typed outcomes, never a text, decide the result (E2A _confirm:
+UNKNOWN > NOT_COMMITTED > COMMITTED).
+
+The saga is resumable (advance_order): the order is recorded as RESERVING before any stock
+moves, and every step continues from the order's status with the same keys:
+
+  credit limit        refused -> REFUSED (nothing recorded before)
+  RESERVING           reserve_stock (ORD-...:reserve)  -> PENDING_PAYMENT | REFUSED
+  PENDING_PAYMENT     submit_settlement (key ORD-...)  -> PAID | CANCELLED (release_stock
+  PAYMENT_UNKNOWN                                         ORD-...:release) | PAYMENT_UNKNOWN
+
+A crash at any point leaves an order that O2CRecovery finishes with the same calls: the stock
+keys make a repeated reservation or release a no-op, and settlement-service de-duplicates
+the payment on the order id. No order is charged twice, and no stock is lost or counted twice.
 """
 import hashlib
 from decimal import Decimal
@@ -15,7 +25,9 @@ from e2a import BaseAgent, PhysicalOutcome
 
 from ..models.schemas import Order, OrderRequest
 from ..services.catalog import Catalog
-from ..services.stores import OrderStore
+from ..services.stores import InventoryStore, OrderStore
+
+FINAL = ("PAID", "CANCELLED", "REFUSED")
 
 
 def order_id_for(idempotency_key: str) -> str:
@@ -25,8 +37,8 @@ def order_id_for(idempotency_key: str) -> str:
 class OrderExecutionAgent(BaseAgent):
     agent_name = 'OrderExecutionAgent'
 
-    def __init__(self, catalog: Catalog, orders: OrderStore) -> None:
-        self.catalog, self.orders = catalog, orders
+    def __init__(self, catalog: Catalog, orders: OrderStore, inventory: InventoryStore) -> None:
+        self.catalog, self.orders, self.inventory = catalog, orders, inventory
 
     def _prepare(self, state, ctx) -> None:
         request = OrderRequest(**state['order_request'])
@@ -37,32 +49,58 @@ class OrderExecutionAgent(BaseAgent):
 
     def _act(self, state, ctx, io_modify) -> list:
         request, amount = OrderRequest(**state['order_request']), Decimal(state['amount'])
-        order = Order(order_id=order_id_for(ctx.idempotency_key), tenant_id=ctx.tenant_id,
-                      customer_id=request.customer_id, sku=request.sku, quantity=request.quantity, amount=amount,
-                      currency=self.catalog.currency, status='PENDING_PAYMENT', requested_by=state['user_id'],
-                      idempotency_key=ctx.idempotency_key, approved_by=state.get('approved_by'))
-        customer = self.catalog.customers[request.customer_id]
-        if amount > customer.credit_limit:
-            return self._finish(state, order, 'REFUSED', f'amount {amount} exceeds the credit limit '
+        order_id = order_id_for(ctx.idempotency_key)
+        order = self.orders.get(ctx.tenant_id, order_id)
+        if order is None:
+            order = Order(order_id=order_id, tenant_id=ctx.tenant_id,
+                          customer_id=request.customer_id, sku=request.sku, quantity=request.quantity, amount=amount,
+                          currency=self.catalog.currency, status='RESERVING', requested_by=state['user_id'],
+                          idempotency_key=ctx.idempotency_key, approved_by=state.get('approved_by'))
+            customer = self.catalog.customers[request.customer_id]
+            if amount > customer.credit_limit:
+                order.status, order.reason = 'REFUSED', (f'amount {amount} exceeds the credit limit '
                                                          f'{customer.credit_limit} (POL-CREDIT-01)')
-        reserved = io_modify.call('reserve_stock', {'sku': request.sku, 'quantity': request.quantity},
-                                  idempotency_key=f'{order.order_id}:reserve')
-        if not reserved['physical_success']:
-            return self._finish(state, order, 'REFUSED', 'insufficient stock')
-        self.orders.create(order)
-        settlement = io_modify.call('submit_settlement', {'json': {
-            'payerAccount': customer.payer_account, 'payeeAccount': self.catalog.receivable_account,
-            'amount': str(amount), 'currency': self.catalog.currency}}, idempotency_key=order.order_id)
-        compensation = apply_settlement_result(order, settlement, io_modify)
-        self.orders.update(order)
+                self.orders.create(order)
+                respond(state, order)
+                return [PhysicalOutcome.NOT_COMMITTED]
+            self.orders.create(order)                 # RESERVING: no event; nothing has moved yet
+        outcomes = advance_order(order, self.catalog, self.orders, self.inventory, io_modify)
         respond(state, order)
-        return [reserved, settlement, *compensation]
+        return outcomes or [outcome_of(order)]
 
-    def _finish(self, state, order, status, reason) -> list:
-        order.status, order.reason = status, reason
-        self.orders.create(order)
-        respond(state, order)
-        return [PhysicalOutcome.NOT_COMMITTED]
+
+def advance_order(order: Order, catalog: Catalog, orders: OrderStore, inventory: InventoryStore, io_modify) -> list:
+    """Continue the saga from the order's status (used by the agent and by recovery).
+    Returns the outcomes of the calls it made; the order is updated in the store."""
+    outcomes = []
+    if order.status == 'RESERVING':
+        reserved = io_modify.call('reserve_stock', {'sku': order.sku, 'quantity': order.quantity},
+                                  idempotency_key=f'{order.order_id}:reserve')
+        outcomes.append(reserved)
+        if reserved['physical_success']:
+            order.status = 'PENDING_PAYMENT'
+        else:
+            order.status, order.reason = 'REFUSED', 'insufficient stock'
+        orders.update(order)
+    if order.status in ('PENDING_PAYMENT', 'PAYMENT_UNKNOWN'):
+        customer = catalog.customers[order.customer_id]
+        settlement = io_modify.call('submit_settlement', {'json': {
+            'payerAccount': customer.payer_account, 'payeeAccount': catalog.receivable_account,
+            'amount': str(order.amount), 'currency': order.currency}}, idempotency_key=order.order_id)
+        outcomes += [settlement, *apply_settlement_result(order, settlement, io_modify)]
+        orders.update(order)
+    if order.status in FINAL:                         # the stock keys are no longer needed
+        inventory.forget(order.sku, f'{order.order_id}:reserve', f'{order.order_id}:release')
+    return outcomes
+
+
+def outcome_of(order: Order) -> PhysicalOutcome:
+    """The physical truth an order's status stands for."""
+    if order.status == 'PAID':
+        return PhysicalOutcome.COMMITTED
+    if order.status in ('CANCELLED', 'REFUSED'):
+        return PhysicalOutcome.NOT_COMMITTED
+    return PhysicalOutcome.UNKNOWN
 
 
 def respond(state, order: Order) -> None:
