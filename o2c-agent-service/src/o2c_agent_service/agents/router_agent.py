@@ -42,8 +42,10 @@ class RouterAgent(BaseAgent):
         return 1.0
 
     def _fallback(self, state, ctx):
+        """The request could not be classified: UNSUPPORTED, with the reason for the caller."""
         state['intent'] = 'UNSUPPORTED'
-        return {'text': json.dumps({'intent': 'UNSUPPORTED'}), 'degraded': True}
+        return {'text': json.dumps({'intent': 'UNSUPPORTED', 'reason': 'UNCLASSIFIED'}), 'degraded': True,
+                'reason': 'UNCLASSIFIED'}
 
     def _handle_error(self, error, state, ctx):
         logging.error(f'[{self.agent_name}] {error}')
