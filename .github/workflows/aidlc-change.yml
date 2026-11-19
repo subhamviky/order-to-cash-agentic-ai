@@ -1,0 +1,41 @@
+name: aidlc-change
+
+# Changes existing code of o2c-agent-service from a prompt (a2c-framework aidlc-change, hub design
+# note AD-01) and opens a pull request for review. The commit's author is the person who runs this
+# workflow; the model is Gemini on Vertex AI in this project's Google Cloud account (profile
+# google_vertex), reached through Workload Identity Federation: no provider account, no stored key.
+# One-time setup: o2c-agent-service/infra/aidlc (README.md there) and the four AIDLC_GCP_* variables.
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "The change, in plain words"
+        required: true
+      target:
+        description: "Optional: path::Class.method, relative to o2c-agent-service"
+        required: false
+        default: ""
+      kind:
+        description: "Optional: feature | fix | refactor | breaking"
+        required: false
+        default: ""
+
+jobs:
+  change:
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    uses: subhamviky/a2c-framework/.github/workflows/aidlc-change.yml@v1.5.2
+    with:
+      project: o2c-agent-service
+      prompt: ${{ inputs.prompt }}
+      target: ${{ inputs.target }}
+      kind: ${{ inputs.kind }}
+      a2c_ref: v1.5.2
+      provider_profile: google_vertex
+      provider_requirement: "e2a-managed-providers[google-vertex] @ git+https://github.com/subhamviky/e2a-managed-providers.git@main"
+      gcp_workload_identity_provider: ${{ vars.AIDLC_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      gcp_service_account: ${{ vars.AIDLC_GCP_SERVICE_ACCOUNT }}
+      gcp_project: ${{ vars.AIDLC_GCP_PROJECT }}
+      gcp_location: ${{ vars.AIDLC_GCP_LOCATION }}
