@@ -1,0 +1,29 @@
+[
+  {
+    "summary": "When the router cannot classify a request, its degraded answer names the reason UNCLASSIFIED, so the caller can tell a refusal from a routing failure.",
+    "kind": "feature",
+    "subject": "feat(router-agent): name the reason of an unclassified request",
+    "body": "RouterAgent._fallback now returns reason UNCLASSIFIED with the UNSUPPORTED intent, and a test covers it.",
+    "changelog": "The router's degraded answer names its reason, UNCLASSIFIED.",
+    "targets": [
+      {"file": "src/o2c_agent_service/agents/router_agent.py", "region": "RouterAgent._fallback", "why": "the degraded answer of the router"}
+    ],
+    "new_files": ["tests/test_router_fallback.py"],
+    "declaration_changes": []
+  },
+  {
+    "edits": [
+      {
+        "op": "replace",
+        "file": "src/o2c_agent_service/agents/router_agent.py",
+        "region": "RouterAgent._fallback",
+        "code": "def _fallback(self, state, ctx):\n    \"\"\"The request could not be classified: UNSUPPORTED, with the reason for the caller.\"\"\"\n    state['intent'] = 'UNSUPPORTED'\n    return {'text': json.dumps({'intent': 'UNSUPPORTED', 'reason': 'UNCLASSIFIED'}), 'degraded': True,\n            'reason': 'UNCLASSIFIED'}"
+      },
+      {
+        "op": "create",
+        "file": "tests/test_router_fallback.py",
+        "code": "\"\"\"The router's degraded answer names its reason (aidlc-change, hub design note AD-01).\"\"\"\nimport json\n\nfrom o2c_agent_service.agents.router_agent import RouterAgent\n\n\ndef test_an_unclassified_request_names_its_reason():\n    state = {}\n    answer = RouterAgent()._fallback(state, None)\n    assert state['intent'] == 'UNSUPPORTED'\n    assert answer['degraded'] and answer['reason'] == 'UNCLASSIFIED'\n    assert json.loads(answer['text']) == {'intent': 'UNSUPPORTED', 'reason': 'UNCLASSIFIED'}\n"
+      }
+    ]
+  }
+]
