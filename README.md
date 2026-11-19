@@ -35,7 +35,7 @@ This repository went through three stages. Each one is kept, so the path can be 
 
 ## Design
 
-The full design (HLD and LLD) of `o2c-agent-service` is in [`docs/design/`](docs/design/README.md): [Markdown](docs/design/O2C_DESIGN.md) with diagrams, and a [Word copy](docs/design/O2C_Design_Document.docx).
+The full design (HLD and LLD) of `o2c-agent-service` is in [`docs/design/`](docs/design/README.md): [Markdown](docs/design/O2C_DESIGN.md) with diagrams, and a [PDF copy](docs/design/O2C_Design_Document.pdf).
 
 ## Evidence
 
