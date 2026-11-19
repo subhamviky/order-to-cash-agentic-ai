@@ -1,0 +1,39 @@
+name: aidlc-change
+
+# Changes existing code of o2c-agent-service from a prompt with a2c-framework's aidlc-change
+# (hub design note AD-01) and opens a pull request for review. The commit's author is the person
+# who runs this workflow.
+#
+# This landscape has no model account: everything runs in CI. The model's answers are recorded
+# and committed in aidlc/changes/*.replay.json, and aidlc-change plays them back. Everything else
+# is real: who you are, the plan, the edit rules, the checks (compile, E2A conformance, secret
+# scan, critic, this service's tests), the commit with its trailers, the signed push, the pull
+# request and the run's artifact. With a model account, set provider_profile instead of llm.
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "The change, in plain words"
+        required: true
+        default: "When the router agent cannot classify a request, name the reason UNCLASSIFIED in its degraded answer, with a test"
+      replay:
+        description: "Recorded model answers for this change"
+        required: true
+        default: "aidlc/changes/router-unclassified.replay.json"
+      kind:
+        description: "Optional: feature | fix | refactor | breaking"
+        required: false
+        default: ""
+
+jobs:
+  change:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: subhamviky/a2c-framework/.github/workflows/aidlc-change.yml@v1.5.2
+    with:
+      project: o2c-agent-service
+      prompt: ${{ inputs.prompt }}
+      kind: ${{ inputs.kind }}
+      a2c_ref: v1.5.2
+      llm: replay:${{ inputs.replay }}
