@@ -1,0 +1,64 @@
+{
+  "base_commit": "c9e17295f2b428784e1cd7598242858db5c718c2",
+  "created_at": "2026-11-19T17:20:04Z",
+  "developer": {
+    "email": "262078794+subhamviky@users.noreply.github.com",
+    "name": "subhamviky",
+    "source": "github-triggering-actor"
+  },
+  "files": [
+    {
+      "after": "2952c04dedaacc3e4b31bb44759e808b407793a5e378315cbbaf18411d235fec",
+      "before": "6af4b5f439849bfea93f4bb15dc142b6cdc85f5383c22d691ee9e0dfee90ac9d",
+      "path": "o2c-agent-service/src/o2c_agent_service/agents/router_agent.py"
+    },
+    {
+      "after": "7f76a536e1c67d38f1f318ff9d7053ea95f7d65837efb45b35f0e8139369d19b",
+      "before": null,
+      "path": "o2c-agent-service/tests/test_router_fallback.py"
+    }
+  ],
+  "id": "chg-e06f08af",
+  "kind": "feature",
+  "plan": {
+    "kind": "feature",
+    "new_files": [
+      "tests/test_router_fallback.py"
+    ],
+    "summary": "When the router cannot classify a request, its degraded answer names the reason UNCLASSIFIED, so the caller can tell a refusal from a routing failure.",
+    "targets": [
+      {
+        "file": "src/o2c_agent_service/agents/router_agent.py",
+        "region": "RouterAgent._fallback",
+        "why": "the degraded answer of the router"
+      }
+    ],
+    "version": {
+      "file": "pyproject.toml",
+      "from": "0.1.0",
+      "to": "0.1.0"
+    }
+  },
+  "prompt": "When the router agent cannot classify a request, name the reason UNCLASSIFIED in its degraded answer, with a test",
+  "prompt_sha256": "ec396d71e3c5120f006561b5c5757a0ff5ba8abb3be9e5cdf3de6747926a4a25",
+  "run": "https://github.com/subhamviky/order-to-cash-agentic-ai/actions/runs/44575839075",
+  "tooling": {
+    "a2c_framework": "1.5.3",
+    "model": "replay"
+  },
+  "verification": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "failures": []
+      }
+    ],
+    "checks": {
+      "compile": "passed",
+      "conformance": "passed",
+      "critic_concurrency": "passed",
+      "secret_scan": "passed",
+      "tests": "passed"
+    }
+  }
+}
