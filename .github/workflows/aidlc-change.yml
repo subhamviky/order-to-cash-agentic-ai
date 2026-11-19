@@ -32,10 +32,10 @@ jobs:
       pull-requests: write
       id-token: write   # the reusable workflow declares it (optional cloud sign-in); unused here, but a
                         # caller must grant every permission the called workflow asks for, or it cannot start
-    uses: subhamviky/a2c-framework/.github/workflows/aidlc-change.yml@v1.5.3
+    uses: subhamviky/a2c-framework/.github/workflows/aidlc-change.yml@v1.5.4
     with:
       project: o2c-agent-service
       prompt: ${{ inputs.prompt }}
       kind: ${{ inputs.kind }}
-      a2c_ref: v1.5.3
+      a2c_ref: v1.5.4
       llm: replay:${{ inputs.replay }}
