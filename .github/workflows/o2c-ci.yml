@@ -64,6 +64,12 @@ jobs:
           terraform fmt -check -recursive
           terraform validate
           terraform test
+      - name: the aidlc stack (model access for aidlc-change), against the mock provider
+        working-directory: o2c-agent-service/infra/aidlc
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+          terraform test
 
   image:
     runs-on: ubuntu-latest
