@@ -10,9 +10,10 @@ recover():           an unfinished order (payment UNKNOWN, or a saga a crash sto
 """
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from e2a import BrokerOutboxSweeper, CapacityRefusal, ResumeRefused
+from e2a.evals import RecordingOnlineEvaluator
 from e2a_adapters.workload import workload_credentials
 from e2a_simulated_llm import SimulatedLLMService
 
@@ -66,8 +67,12 @@ class O2CAssistant:
                       **settlement_tools(settlement_url, settlement_transport),
                       **reconciliation_tools(reconciliation_url, reconciliation_transport)}
         credentials = workload_credentials()     # SI-01: this service's token to the others; None unless configured
+        # EV-01 (E2A v1.9): with O2C_EVAL_RECORDS set, every settled run that E2A samples
+        # (ONLINE_EVAL_SAMPLE_RATE, default 0.1) is recorded as a redacted JSON line, off the request path
+        records = os.getenv("O2C_EVAL_RECORDS")
         self.config = {"llm_service": llm, "governance_engine": self.governance, "tools": self.tools,
                        **({"credential_provider": credentials} if credentials is not None else {}),
+                       **({"online_evaluator": RecordingOnlineEvaluator(records)} if records else {}),
                        "idempotency_store": self.store, "checkpoint_store": self.approvals,
                        "min_confidence": 0.85, "max_latency": 15.0, "timeout": 5.0, "retries": 2, **(config or {})}
         self.mcp = O2CMCPServer(self.tools)
@@ -87,11 +92,17 @@ class O2CAssistant:
     # ------------------------------------------------------------------ capabilities
     def handle(self, text: str, tenant_id: str, user_id: str, role: str,
                idempotency_key: Optional[str] = None) -> AssistantResponse:
+        return self.handle_traced(text, tenant_id, user_id, role, idempotency_key)[0]
+
+    def handle_traced(self, text: str, tenant_id: str, user_id: str, role: str,
+                      idempotency_key: Optional[str] = None) -> Tuple[AssistantResponse, Dict]:
+        """handle(), and the workflow's final state: the steps, the tools called (E2A v1.9
+        trajectory) and the evaluation. The release gate scores trajectory cases on it."""
         state = {"tenant_id": tenant_id, "user_id": user_id, "role": role, "query": text}
         self._check("RouterAgent", state)
         with self.governance.limiter.slot():
             state = self.workflow.execute(state, self._request_config(), idempotency_key=idempotency_key)
-        return self._outcome(state)
+        return self._outcome(state), state
 
     def approve(self, approval_id: str, tenant_id: str, user_id: str, role: str) -> AssistantResponse:
         state = self._decide(approval_id, tenant_id, {"approved": True, "decided_by": user_id, "role": role})
