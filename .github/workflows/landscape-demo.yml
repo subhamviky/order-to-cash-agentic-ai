@@ -93,6 +93,8 @@ jobs:
         env:
           SETTLEMENT_API_URL: http://localhost:8080
           RECONCILIATION_API_URL: http://localhost:8001
+          O2C_EVAL_RECORDS: ${{ runner.temp }}/o2c-online-eval.jsonl   # EV-01: E2A's recording online evaluator
+          ONLINE_EVAL_SAMPLE_RATE: "1"                                  # the demo records every settled run
         run: |
           poetry install --no-interaction
           nohup poetry run uvicorn o2c_agent_service.main:app --port 8002 > "$RUNNER_TEMP/o2c.log" 2>&1 &
@@ -107,6 +109,25 @@ jobs:
       - name: Run the cross-landscape scenario
         working-directory: o2c/o2c-agent-service
         run: poetry run python scripts/landscape_demo.py
+
+      - name: Online evaluation records, and candidate cases promoted from them (reviewed by a person, never added automatically)
+        working-directory: o2c/o2c-agent-service
+        run: |
+          records="$RUNNER_TEMP/o2c-online-eval.jsonl"
+          test -s "$records" || { echo "::error::no online evaluation record was written"; exit 1; }
+          echo "records: $(wc -l < "$records")"
+          poetry run python -m e2a.evals promote --records "$records" --out "$RUNNER_TEMP/o2c-eval-candidates.json" --below 0.85
+          python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(len(c), 'candidate case(s), status', sorted({x['provenance']['status'] for x in c}))" "$RUNNER_TEMP/o2c-eval-candidates.json"
+
+      - name: Keep the records and the candidates
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: o2c-online-evaluation
+          path: |
+            ${{ runner.temp }}/o2c-online-eval.jsonl
+            ${{ runner.temp }}/o2c-eval-candidates.json
+          if-no-files-found: warn
 
       - name: Service logs
         if: always()

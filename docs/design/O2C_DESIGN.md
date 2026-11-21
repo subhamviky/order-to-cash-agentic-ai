@@ -9,8 +9,8 @@
 | Project | `order-to-cash-agentic-ai` — service `o2c-agent-service` |
 | Document type | Design Document (HLD + LLD) |
 | Author | Subham Gupta, Principal Platform Architect |
-| Source baseline | `subhamviky/order-to-cash-agentic-ai` `main` at `68a9a32`:<ul><li>**o2c-agent-service:** Python 3.12, FastAPI, about 2,070 lines in 38 modules; `policies/`, `knowledge/`, `evals/`; 13 test modules with 65 test functions.</li><li>**Built on:** **E2A v1.7.5** and **e2a-adapters 1.7.5** `[gcp]`; `capability-oriented-dsa` v0.2.0.</li><li>**Infrastructure:** `infra/*.tf` (Google Cloud), `infra/api-gateway/openapi.yaml`, `infra/tests/gcp.tftest.hcl`.</li></ul> |
-| Date | 16 November 2026 |
+| Source baseline | `subhamviky/order-to-cash-agentic-ai` `main` at `68a9a32`:<ul><li>**o2c-agent-service:** Python 3.12, FastAPI, about 2,070 lines in 38 modules; `policies/`, `knowledge/`, `evals/`; 14 test modules with 68 test functions.</li><li>**Built on:** **E2A v1.9.1** and **e2a-adapters 1.9.1** `[gcp]` (evaluation, Sections 11 and 13: E2A v1.9); `capability-oriented-dsa` v0.2.0.</li><li>**Infrastructure:** `infra/*.tf` (Google Cloud), `infra/api-gateway/openapi.yaml`, `infra/tests/gcp.tftest.hcl`.</li></ul> |
+| Date | 21 November 2026 (evaluation with E2A v1.9; first issue 16 November 2026) |
 | Status | Describes the code on `main`. Section 14 lists where the code and the original requirements differ, and the open gaps. |
 
 ## 1. Introduction
@@ -194,7 +194,7 @@ Sections 5 to 13 describe this current state; Section 14 records the remaining d
 | `OrderStore`, `InventoryStore`, `ApprovalStore`, `PagedIndex` | State on an E2A transactional store, with the outbox |
 | `O2CRecovery` | Unfinished orders (RESERVING, PENDING_PAYMENT, PAYMENT_UNKNOWN), finished with the same keys |
 | `BrokerOutboxSweeper` (E2A) | Publishes pending order events under a lease |
-| `O2CReleaseGate` | AI-DLC release gate: RAG golden set, red-team probes |
+| `O2CReleaseGate` | AI-DLC release gate: RAG golden set, red-team probes, and since E2A v1.9 trajectory cases scored by `e2a.evals` (`_run_case` runs the assistant and returns the workflow's state) |
 
 ### 5.4 Deployment on Google Cloud
 
@@ -390,7 +390,7 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 | Scale-out | Firestore state shared by up to three instances; paged index; sweeper lease | CI runs the suite again on the Firestore and Pub/Sub emulators with several instances on one database |
 | Human oversight | Approval stage, checkpoint, four eyes | AC-7 |
 | AI safety | Firewall, redaction on ingress and egress, entitlement, tool allow-list | `test_governance.py`; red-team probes in the release gate |
-| AI quality | Router, intake, finance and groundedness checks; RAG golden set (10 cases) must score 1.0 | `test_finance_and_knowledge.py`; release gate |
+| AI quality | Router, intake, finance and groundedness checks; RAG golden set (10 cases) and four trajectory cases must score 1.0: an order reserves stock before it submits the settlement and makes at most two tool calls; a policy question and a status question call no material tool; a large order waits for approval before any tool. With `O2C_EVAL_RECORDS`, sampled settled runs are recorded (E2A's recording online evaluator, redacted) | `test_finance_and_knowledge.py`, `test_api_and_release_gate.py`; release gate; landscape demo |
 | Capacity | `InflightLimiter(20)`, token budget 4,000 per request | `test_governance.py` |
 | Cost | Usage per model call | `/api/v1/usage` |
 | Security | Identity at ingress, invokers only from a list, IAM scoped to one database and one topic | `test_identity_at_ingress.py`; `terraform test` |
@@ -420,12 +420,12 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 
 | Evidence | What it proves |
 |---|---|
-| Tests (13 modules, 65 test functions; downstream services as in-process fakes) | AC-1 to AC-14: routing, intake, saga, replay and conflict, credit and stock, compensation, approval and four eyes, unknown outcomes and recovery, finance and knowledge answers, governance, HTTP and MCP. Identity at ingress, order events, paged index, shared state. |
+| Tests (14 modules, 68 test functions; downstream services as in-process fakes) | AC-1 to AC-14: routing, intake, saga, replay and conflict, credit and stock, compensation, approval and four eyes, unknown outcomes and recovery, finance and knowledge answers, governance, HTTP and MCP. Identity at ingress, order events, paged index, shared state. |
 | CI `o2c-ci` tests, second run | The same suite with state in Firestore and events to Pub/Sub (emulators), several instances on one database |
-| CI release gate (`O2CReleaseGate`, seven stages) | Secret scan, tests, strict conformance, compile, RAG golden set (10 cases), red-team (injections, PII, entitlements), rollout record |
+| CI release gate (`O2CReleaseGate`, seven stages) | Secret scan, tests, strict conformance, compile, RAG golden set (10 cases) and four trajectory cases, red-team (injections, PII, entitlements, and two injections that must call no material tool), rollout record. The evidence is labelled `wiring` on the simulated profile |
 | CI `terraform` | `fmt`, `validate`, `terraform test` with a mock provider (`gcp.tftest.hcl`) |
 | CI `image` | The image builds, starts and answers a policy question |
-| `landscape-demo` workflow | 15 steps against the real settlement-service and reconciliation-service (`DEMO PASSED`) |
+| `landscape-demo` workflow | 15 steps against the real settlement-service and reconciliation-service (`DEMO PASSED`); every settled run recorded for online evaluation, and `python -m e2a.evals promote` turns the low-scoring, fallback and refused runs into redacted candidate cases (`NEEDS_REVIEW`, never added to the sets automatically); both kept as a workflow artifact |
 | e2a-managed-providers CI | This suite and a landscape run on every managed-provider profile |
 
 ## 14. Gaps, Deviations and Backlog

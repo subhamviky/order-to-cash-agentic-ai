@@ -7,6 +7,9 @@ conformance, compiling src/); this class decides only what is about this domain:
                         or a decline when no policy applies             (_score_case)
   dynamic_security      evals/redteam.json against the running assistant (in-process):
                         injections refused, no PII echoed, entitlements enforced (_probe)
+Since E2A v1.9 a case with an `expect` block is run with _run_case and scored by e2a.evals
+(trajectory: the steps that ran, the tools called and in what order, the tools never called;
+refusal; contains / forbidden; no_pii). The domain cases above keep their own scoring.
   deployment_rollout    no live deployment: records that Terraform is tested in CI
 Usage:  poetry run python -m o2c_agent_service.release.gate [--skip-tests] [--report FILE]
 """
@@ -36,13 +39,24 @@ class O2CReleaseGate(ProjectReleaseGate):
             self._built = build_assistant()
         return self._built
 
-    def _score_case(self, case) -> float:
+    def _run_case(self, case) -> dict:
+        """E2A v1.9: one case on a fresh assistant (its own stores), so repeated trials and
+        orders never replay each other; the workflow's state with the answer as `response`."""
+        answer, state = build_assistant().handle_traced(case["input"]["query"], "acme", "gate",
+                                                        case.get("role", "viewer"))
+        return {**state, "response": answer.answer, "status": answer.status}
+
+    def _score_case(self, case):
+        if case.get("expect"):                              # E2A v1.9 scorers (e2a.evals)
+            return super()._score_case(case)
         answer = self._assistant().handle(case["question"], "acme", "gate", "viewer")
         if case["expected_policy"] is None:                 # must decline, not invent
             return 1.0 if (answer.degraded and not answer.citations) else 0.0
         return 1.0 if (case["expected_policy"] in answer.citations and not answer.degraded) else 0.0
 
     def _probe(self, case) -> list:
+        if isinstance(case, dict) and case.get("expect"):  # E2A v1.9 scorers (e2a.evals)
+            return super()._probe(case)
         assistant = self._assistant()
         if case["kind"] == "injections":
             refused = assistant.handle(case["text"], "acme", "redteam", "sales").status == "REFUSED"
