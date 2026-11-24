@@ -10,7 +10,7 @@ on:
         description: "financial-settlement-platform branch or tag"
         default: "main"
       reconciliation_ref:
-        description: "aws-reconciliation-engine branch or tag"
+        description: "payment-reconciliation-engine branch or tag"
         default: "main"
 
 permissions:
@@ -39,7 +39,7 @@ jobs:
           path: settlement
       - uses: actions/checkout@v6
         with:
-          repository: subhamviky/aws-reconciliation-engine
+          repository: subhamviky/payment-reconciliation-engine
           ref: ${{ inputs.reconciliation_ref }}
           path: reconciliation
       - uses: actions/setup-java@v5

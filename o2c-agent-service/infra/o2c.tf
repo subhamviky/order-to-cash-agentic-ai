@@ -9,7 +9,7 @@ variable "settlement_api_url" {
 
 variable "reconciliation_api_url" {
   type        = string
-  description = "Base URL of reconciliation-service (aws-reconciliation-engine)."
+  description = "Base URL of reconciliation-service (payment-reconciliation-engine)."
   default     = "https://reconciliation.internal.example"
 }
 
