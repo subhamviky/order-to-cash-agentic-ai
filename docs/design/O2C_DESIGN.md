@@ -245,6 +245,26 @@ The tests use in-process fakes of both downstream services (`release/fakes.py`).
 - `OrderExecutionAgent._build_messages` returns `None`: placing an order has no model step.
 - Usage (calls, tokens, cost) is at `GET /api/v1/usage`.
 
+### 5.8 The free-tier configuration on Google Cloud (status: verified, 25 November 2026)
+
+The stack in Section 5.4 is also applied in the Google Cloud trial project of the GenAI landscape (hub design note GCP-01) with variables that leave its defaults unchanged for other deployments. Billing for 1 to 25 November was ₹0.00 of ₹28,569.00.
+
+| Variable (landscape value) | Effect |
+|---|---|
+| `firestore_database = "(default)"` | state in the project's one free Firestore database (collection `o2c`); no database of its own, no point-in-time recovery or delete protection of its own |
+| `max_instance_count = 1`, `combined_schedule` every two minutes | one instance; one Cloud Scheduler job (`POST /internal/jobs/scheduled`: event publishing and order recovery together), because the account has three free scheduler jobs for the whole landscape |
+| `identity_source = gcp_cloud_run`, `workload_identity = gcp_id_token` | no API Gateway or Entra: Cloud Run IAM verifies the caller's Google ID token and E2A maps the verified e-mail to tenants and roles; O2C calls settlement and reconciliation with its own Google ID token |
+| `image_repository` | the landscape's one Artifact Registry repository |
+| model | simulated (the free Gemini quota is kept for the assistant); a `gemini_api` profile is one variable away |
+
+What the cloud run confirmed: two orders (3 printers and a varying number of scanners) were accepted through the assistant route, each reserved stock in Firestore, was paid through settlement-service with a Google ID token, and was returned `PAID` with its settlement id; an `Idempotency-Key` per order made a repeated run create new orders instead of replaying the old ones. Findings the real cloud added:
+
+| Finding | Fix |
+|---|---|
+| The service refused to start: Firestore answered `PERMISSION_DENIED`. `datastore.user` was conditioned on a database named for the service, and on the shared `(default)` database the condition denied access | the condition applies only when the service has its own database (`firestore.tf`) |
+| A token minted for the deployer carried no e-mail, so O2C answered `403 the caller is not granted tenant 'acme'` (grants are keyed by e-mail) | the caller asks for the e-mail in its token; the service's own outbound token from the metadata server already does (`format=full`) |
+| The stack's URL is the output `service_uri` (not `url`) | documented in the runbook |
+
 ## 6. Data Design
 
 ![Figure 4 — Data](images/10_data_model.png)
@@ -426,13 +446,14 @@ A small order runs the same path without the pause: `ApprovalStage` passes and `
 | CI `terraform` | `fmt`, `validate`, `terraform test` with a mock provider (`gcp.tftest.hcl`) |
 | CI `image` | The image builds, starts and answers a policy question |
 | `landscape-demo` workflow | 15 steps against the real settlement-service and reconciliation-service (`DEMO PASSED`); every settled run recorded for online evaluation, and `python -m e2a.evals promote` turns the low-scoring, fallback and refused runs into redacted candidate cases (`NEEDS_REVIEW`, never added to the sets automatically); both kept as a workflow artifact |
+| Google Cloud scenario (25 November 2026) | `landscape-gcp` against the deployed services: orders accepted and paid through the deployed settlement-service with Google ID tokens, then audit, reconciliation and the assistant; passed in about 125 s in all (report in the assistant repository, `docs/EVALUATION_REPORT.md`) |
 | e2a-managed-providers CI | This suite and a landscape run on every managed-provider profile |
 
 ## 14. Gaps, Deviations and Backlog
 
 | # | Item | Kind | Notes |
 |---|---|---|---|
-| G-1 | Calls to settlement-service and reconciliation-service carried `X-Tenant-Id` only, with no service credential | Fixed (SI-01) | A Google ID token exchanged for an Entra token per target (Section 5.6); the exception query uses reconciliation's service route. Not yet run against live clouds. |
+| G-1 | Calls to settlement-service and reconciliation-service carried `X-Tenant-Id` only, with no service credential | Fixed (SI-01) | A Google ID token exchanged for an Entra token per target (Section 5.6); the exception query uses reconciliation's service route. The Entra exchange has not been run against a live directory; on Google Cloud the direct Google ID token to settlement has run live (Section 5.8). |
 | G-2 | Unfinished orders were recovered only on request (`POST …/recover`) | Fixed | `recover_stuck()`, every five minutes. Every order listed in `open-orders` for longer than `O2C_RECOVERY_AFTER_SECONDS` (600, past the request's lease) goes through `O2CRecovery`. It never takes over a live claim. Entries whose order is final or missing are removed. |
 | G-3 | A crash inside the order saga left an order recovery could not finish: stock reserved with no order (lost), or an order in PENDING_PAYMENT after the money moved. A `409` from settlement-service was taken as a decline. | Fixed | Order recorded RESERVING first; keyed stock changes; `advance_order` shared by the request and recovery; recovery takes RESERVING and PENDING_PAYMENT; `409` is UNKNOWN; RECOVERY_REQUIRED names the order (`test_order_recovery.py`, on memory and on the emulators) |
 | G-12 | A crash after the claim but before the order is recorded leaves the claim with nothing to recover | Gap (minor) | Nothing moved. With a derived key the same order by the same user stays RECOVERY_REQUIRED; a recovery path for claims without an order, or a client `Idempotency-Key`, avoids it |
