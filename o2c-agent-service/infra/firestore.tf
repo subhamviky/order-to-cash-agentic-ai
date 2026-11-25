@@ -45,14 +45,19 @@ resource "google_firestore_field" "ttl" {
   ttl_config {}
 }
 
-# Least privilege: read and write documents in this database only.
+# Least privilege: read and write documents. With the service's own database the grant is limited to it by a
+# condition; on a shared existing database (GCP-01, "(default)") it is the plain project role, as in the other
+# services, because a condition on the shared database's name delayed or denied access in the first live apply.
 resource "google_project_iam_member" "firestore" {
   project = var.project_id
   role    = "roles/datastore.user"
   member  = "serviceAccount:${google_service_account.app.email}"
-  condition {
-    title      = "o2c-state-database-only"
-    expression = "resource.name.startsWith(\"projects/${var.project_id}/databases/${local.firestore_database}\")"
+  dynamic "condition" {
+    for_each = var.firestore_database == "" ? [1] : []
+    content {
+      title      = "o2c-state-database-only"
+      expression = "resource.name.startsWith(\"projects/${var.project_id}/databases/${local.firestore_database}\")"
+    }
   }
 }
 
