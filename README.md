@@ -31,7 +31,7 @@ This repository went through three stages. Each one is kept, so the path can be 
 |---|---|---|
 | `o2c-agent-service` | Python 3.12, FastAPI, E2A, DSA; Cloud Run (Terraform) | Orders with human approval, payment status, payment exceptions, policy answers; MCP tools |
 
-**Its place in the landscape:** places orders as settlements in [financial-settlement-platform](https://github.com/subhamviky/financial-settlement-platform) and reads open exceptions from [aws-reconciliation-engine](https://github.com/subhamviky/aws-reconciliation-engine). The `landscape-demo` workflow runs all three projects together in sixteen checked steps, from an order in plain language to a write-off in the settlement ledger.
+**Its place in the landscape:** places orders as settlements in [financial-settlement-platform](https://github.com/subhamviky/financial-settlement-platform) and reads open exceptions from [payment-reconciliation-engine](https://github.com/subhamviky/payment-reconciliation-engine). The `landscape-demo` workflow runs all three projects together in sixteen checked steps, from an order in plain language to a write-off in the settlement ledger.
 
 ## Design
 
