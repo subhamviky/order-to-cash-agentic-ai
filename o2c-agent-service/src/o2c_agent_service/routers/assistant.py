@@ -66,8 +66,10 @@ def recover(order_id: str, request: Request, who: Caller = Depends(caller)) -> O
 
 @router.get("/api/v1/usage")
 def usage(request: Request) -> dict:
-    """FinOps evidence: simulated model calls, tokens and cost since start-up."""
-    return _assistant(request).llm.usage_summary()
+    """FinOps evidence: simulated model calls, tokens and cost since start-up (the simulated
+    model counts them; a provider model reports its usage to its own console)."""
+    summary = getattr(_assistant(request).llm, "usage_summary", None)
+    return summary() if callable(summary) else {"model": "provider", "usage": "reported by the provider"}
 
 
 @router.post("/mcp")
@@ -89,3 +91,19 @@ def publish_events(request: Request) -> dict:
     """Publish pending order events to the events topic. Cloud Scheduler calls this on a
     schedule; only the service's invokers (Cloud Run IAM) can reach it."""
     return _assistant(request).publish_events()
+
+
+@router.post("/internal/jobs/scheduled")
+def scheduled_jobs(request: Request) -> dict:
+    """Both scheduled jobs in one call (GCP-01): Cloud Scheduler's free tier is three jobs for the
+    whole landscape, so O2C uses one. Pending order events are published first, then unfinished
+    orders are recovered; a failure of one does not stop the other."""
+    assistant, result = _assistant(request), {}
+    for name, job in (("events", assistant.publish_events), ("recovery", assistant.recover_stuck)):
+        try:
+            result[name] = job()
+        except Exception as e:                                # the next run tries again
+            result[name] = {"error": type(e).__name__, "detail": str(e)[:200]}
+    if all("error" in r for r in result.values() if isinstance(r, dict)):
+        raise HTTPException(status_code=500, detail=result)
+    return result

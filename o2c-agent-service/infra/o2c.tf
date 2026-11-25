@@ -24,8 +24,15 @@ variable "invoker_members" {
   }
 }
 
+variable "image_repository" {
+  type        = string
+  description = "Empty: the service gets its own Artifact Registry repository. Otherwise the repository its images are in (GCP-01: the landscape's one repository, within the 0.5 GB free storage)."
+  default     = ""
+}
+
 # Container images built by CI are pushed here (the image job builds; pushing needs OIDC trust).
 resource "google_artifact_registry_repository" "images" {
+  count         = var.image_repository == "" ? 1 : 0
   repository_id = "${local.name}-images"
   location      = var.region
   format        = "DOCKER"
@@ -42,5 +49,5 @@ resource "google_cloud_run_v2_service_iam_member" "invokers" {
 }
 
 output "image_repository" {
-  value = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}"
+  value = var.image_repository != "" ? var.image_repository : "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images[0].repository_id}"
 }

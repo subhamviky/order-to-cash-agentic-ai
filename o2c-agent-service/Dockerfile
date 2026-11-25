@@ -5,8 +5,10 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/* && pip install "poetry>=2.0,<3"
 COPY pyproject.toml poetry.lock* ./
+# GCP-01: --build-arg POETRY_EXTRAS=gemini adds the Gemini Developer API client (E2A_PROVIDER_PROFILE=gemini_api)
+ARG POETRY_EXTRAS=""
 RUN poetry config virtualenvs.in-project true \
-    && poetry install --only main --no-root --no-interaction
+    && poetry install --only main --no-root --no-interaction ${POETRY_EXTRAS:+--extras "$POETRY_EXTRAS"}
 
 FROM python:3.12-slim AS runtime
 WORKDIR /app

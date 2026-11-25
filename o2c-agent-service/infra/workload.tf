@@ -5,6 +5,17 @@
 # financial-settlement-platform/landscape-identity/ holds the apps, roles and grants; give it
 # this stack's output runtime_service_account_unique_id.
 
+variable "workload_identity" {
+  type        = string
+  description = "How calls to settlement and reconciliation prove this service's identity: entra (the Google ID token exchanged for an Entra token, below), or gcp_id_token (GCP-01, E2A v1.11.0: the Google ID token itself, for the targets' Cloud Run IAM)."
+  default     = "entra"
+
+  validation {
+    condition     = contains(["entra", "gcp_id_token"], var.workload_identity)
+    error_message = "workload_identity: entra or gcp_id_token."
+  }
+}
+
 variable "entra_directory_id" {
   type        = string
   description = "The Entra directory that issues the landscape's workload tokens. Empty: calls carry no token."
@@ -30,7 +41,7 @@ variable "reconciliation_scope" {
 }
 
 locals {
-  workload_on = var.entra_directory_id != "" && var.entra_client_id != "" && var.settlement_scope != "" && var.reconciliation_scope != ""
+  workload_on = var.workload_identity == "entra" && var.entra_directory_id != "" && var.entra_client_id != "" && var.settlement_scope != "" && var.reconciliation_scope != ""
   workload_env = local.workload_on ? {
     E2A_WORKLOAD_IDENTITY        = "gcp"
     E2A_WORKLOAD_ENTRA_TENANT    = var.entra_directory_id
@@ -39,7 +50,7 @@ locals {
       (var.settlement_api_url)     = var.settlement_scope
       (var.reconciliation_api_url) = var.reconciliation_scope
     })
-  } : {}
+  } : var.workload_identity == "gcp_id_token" ? { E2A_WORKLOAD_IDENTITY = "gcp_id_token" } : {}
 }
 
 output "runtime_service_account_unique_id" {

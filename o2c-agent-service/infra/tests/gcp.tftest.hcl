@@ -26,7 +26,7 @@ run "plan_with_mocks" {
   }
 
   assert {
-    condition     = google_firestore_database.state.type == "FIRESTORE_NATIVE" && google_firestore_database.state.point_in_time_recovery_enablement == "POINT_IN_TIME_RECOVERY_ENABLED"
+    condition     = google_firestore_database.state[0].type == "FIRESTORE_NATIVE" && google_firestore_database.state[0].point_in_time_recovery_enablement == "POINT_IN_TIME_RECOVERY_ENABLED"
     error_message = "The state database is Firestore in Native mode, recoverable (PITR)."
   }
 
@@ -51,7 +51,7 @@ run "plan_with_mocks" {
   }
 
   assert {
-    condition     = google_artifact_registry_repository.images.format == "DOCKER"
+    condition     = google_artifact_registry_repository.images[0].format == "DOCKER"
     error_message = "Images go to a Docker repository in Artifact Registry."
   }
 
@@ -70,7 +70,7 @@ run "order_events_are_published" {
   }
 
   assert {
-    condition     = google_cloud_scheduler_job.publish_events.http_target[0].http_method == "POST" && length(google_cloud_scheduler_job.publish_events.http_target[0].oidc_token) == 1
+    condition     = google_cloud_scheduler_job.publish_events[0].http_target[0].http_method == "POST" && length(google_cloud_scheduler_job.publish_events[0].http_target[0].oidc_token) == 1
     error_message = "The scheduler calls the publish endpoint with an OIDC identity."
   }
 
@@ -128,11 +128,78 @@ run "no_token_until_configured" {
 run "unfinished_orders_are_recovered_on_a_schedule" {
   command = plan
   assert {
-    condition     = google_cloud_scheduler_job.recover_orders.schedule == "*/5 * * * *" && google_cloud_scheduler_job.recover_orders.http_target[0].http_method == "POST"
+    condition     = google_cloud_scheduler_job.recover_orders[0].schedule == "*/5 * * * *" && google_cloud_scheduler_job.recover_orders[0].http_target[0].http_method == "POST"
     error_message = "Cloud Scheduler calls the recovery sweep every five minutes"
   }
   assert {
     condition     = contains([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : "${e.name}=${e.value}"], "O2C_RECOVERY_AFTER_SECONDS=600")
     error_message = "orders are recovered only after the request's lease"
   }
+}
+
+# GCP-01: the landscape on the free tier. Shared (default) database, the landscape's image
+# repository, one scheduler job, Cloud Run IAM identity, Google ID tokens to the other services,
+# Gemini's free tier with its key in Secret Manager, one instance.
+run "free_tier" {
+  command = plan
+
+  variables {
+    region                 = "us-central1"
+    firestore_database     = "(default)"
+    image_repository       = "us-central1-docker.pkg.dev/demo-project/landscape"
+    combined_schedule      = "*/2 * * * *"
+    max_instance_count     = 1
+    identity_source        = "gcp_cloud_run"
+    identity_subject_roles = { "genai-app@demo-project.iam.gserviceaccount.com" = ["tenant:acme", "finance"] }
+    workload_identity      = "gcp_id_token"
+    llm_profile            = "gemini_api"
+    gemini_api_key_secret  = "gemini-api-key"
+  }
+
+  assert {
+    condition     = length(google_firestore_database.state) == 0 && google_firestore_field.ttl.database == "(default)"
+    error_message = "No database of its own: the shared (default) database, the free one."
+  }
+
+  assert {
+    condition     = length(google_artifact_registry_repository.images) == 0
+    error_message = "No repository of its own: images are in the landscape's repository."
+  }
+
+  assert {
+    condition     = length(google_cloud_scheduler_job.publish_events) == 0 && length(google_cloud_scheduler_job.recover_orders) == 0 && google_cloud_scheduler_job.jobs[0].schedule == "*/2 * * * *"
+    error_message = "One scheduler job (the landscape has three free), doing both jobs."
+  }
+
+  assert {
+    condition = alltrue([for want in [
+      "E2A_IDENTITY_SOURCE=gcp_cloud_run",
+      "E2A_IDENTITY_TENANTS_FROM_ROLES=tenant:",
+      "E2A_IDENTITY_TRUSTED_ISSUERS=[\"https://accounts.google.com\"]",
+      "E2A_WORKLOAD_IDENTITY=gcp_id_token",
+      "E2A_PROVIDER_PROFILE=gemini_api",
+      "O2C_FIRESTORE_DATABASE=(default)",
+    ] : contains([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : "${e.name}=${e.value != null ? e.value : ""}"], want)])
+    error_message = "Cloud Run IAM identity, ID tokens outbound, Gemini's free tier, the shared database."
+  }
+
+  assert {
+    condition     = length([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : e if e.name == "GEMINI_API_KEY" && e.value == null]) == 1 && length(google_secret_manager_secret_iam_member.gemini_key) == 1
+    error_message = "The Gemini key comes from Secret Manager, never a plain value."
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service.app.template[0].scaling[0].max_instance_count == 1
+    error_message = "One instance on the free tier."
+  }
+}
+
+run "only_free_models" {
+  command = plan
+
+  variables {
+    llm_profile = "google_vertex"
+  }
+
+  expect_failures = [var.llm_profile]
 }
