@@ -1,7 +1,12 @@
-"""The model boundary: E2A SimulatedLLMService (no model access). One rule per agent,
-selected by the agent's system prompt. Each rule behaves like a plausible model: useful,
-but its output is always checked by the agent's _evaluate_output before it is used."""
+"""The model boundary. By default E2A SimulatedLLMService (no model access): one rule per
+agent, selected by the agent's system prompt. Each rule behaves like a plausible model: useful,
+but its output is always checked by the agent's _evaluate_output before it is used.
+
+E2A_PROVIDER_PROFILE names another provider profile (GCP-01: gemini_api, the Gemini Developer
+API's free tier, its key in GEMINI_API_KEY): the model then comes from e2a-managed-providers'
+bindings (install the `gemini` extra). The agents and their output checks are the same."""
 import json
+import os
 import re
 
 from e2a_simulated_llm import SimulatedLLMService, system_contains
@@ -66,7 +71,12 @@ def _knowledge(messages, ctx) -> str:
     return f"{content.rstrip('.')} [{policy_id}]."
 
 
-def build_o2c_llm() -> SimulatedLLMService:
+def build_o2c_llm(profile: str = None):
+    """The simulated model, or the model of the E2A provider profile the deployment names."""
+    profile = (profile if profile is not None else os.getenv("E2A_PROVIDER_PROFILE", "")).strip()
+    if profile and profile != "simulated":
+        from e2a_managed import bindings_from_profile     # the `gemini` extra (e2a-managed-providers)
+        return bindings_from_profile(profile).llm_service
     return (SimulatedLLMService()
             .add_rule("router", system_contains(ROUTER), _route)
             .add_rule("intake", system_contains(INTAKE), _intake)

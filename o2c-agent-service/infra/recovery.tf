@@ -16,6 +16,7 @@ variable "recovery_after_seconds" {
 }
 
 resource "google_cloud_scheduler_job" "recover_orders" {
+  count            = var.combined_schedule == "" ? 1 : 0
   name             = "${local.name}-recover-orders"
   region           = var.region
   schedule         = var.recovery_schedule

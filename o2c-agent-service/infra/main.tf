@@ -162,7 +162,7 @@ resource "google_cloud_run_v2_service" "app" {
       }
       env {
         name  = "O2C_FIRESTORE_DATABASE"
-        value = google_firestore_database.state.name
+        value = local.firestore_database
       }
       env {
         name  = "O2C_FIRESTORE_COLLECTION"
@@ -175,6 +175,26 @@ resource "google_cloud_run_v2_service" "app" {
         content {
           name  = env.key
           value = env.value
+        }
+      }
+      # llm.tf: the model's provider profile (simulated, or gemini_api on the free tier)
+      dynamic "env" {
+        for_each = local.llm_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+      dynamic "env" {
+        for_each = var.gemini_api_key_secret == "" ? [] : [var.gemini_api_key_secret]
+        content {
+          name = "GEMINI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
+          }
         }
       }
       # workload.tf: this service's own token on calls to settlement and reconciliation (SI-01)

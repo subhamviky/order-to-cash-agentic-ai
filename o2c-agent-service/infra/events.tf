@@ -3,6 +3,12 @@
 # (main.tf). Cloud Scheduler runs the sweeper by calling the service. Added by hand next to the
 # A2C-generated main.tf.
 
+variable "combined_schedule" {
+  type        = string
+  description = "Empty: two scheduler jobs (events every minute, recovery every five). A cron: one job calling POST /internal/jobs/scheduled, which does both (GCP-01: Cloud Scheduler's free tier is three jobs for the whole landscape)."
+  default     = ""
+}
+
 variable "events_publish_schedule" {
   type        = string
   description = "How often pending order events are published (cron, UTC)."
@@ -30,6 +36,7 @@ resource "google_cloud_run_v2_service_iam_member" "scheduler" {
 }
 
 resource "google_cloud_scheduler_job" "publish_events" {
+  count            = var.combined_schedule == "" ? 1 : 0
   name             = "${local.name}-publish-events"
   region           = var.region
   schedule         = var.events_publish_schedule
@@ -43,6 +50,28 @@ resource "google_cloud_scheduler_job" "publish_events" {
   http_target {
     http_method = "POST"
     uri         = "${google_cloud_run_v2_service.app.uri}/internal/events/publish"
+    oidc_token {
+      service_account_email = google_service_account.scheduler.email
+      audience              = google_cloud_run_v2_service.app.uri
+    }
+  }
+}
+
+resource "google_cloud_scheduler_job" "jobs" {
+  count            = var.combined_schedule == "" ? 0 : 1
+  name             = "${local.name}-jobs"
+  region           = var.region
+  schedule         = var.combined_schedule
+  time_zone        = "Etc/UTC"
+  attempt_deadline = "300s"
+
+  retry_config {
+    retry_count = 0 # the next run picks up whatever is left
+  }
+
+  http_target {
+    http_method = "POST"
+    uri         = "${google_cloud_run_v2_service.app.uri}/internal/jobs/scheduled"
     oidc_token {
       service_account_email = google_service_account.scheduler.email
       audience              = google_cloud_run_v2_service.app.uri

@@ -25,6 +25,22 @@ This repository went through three stages. Each one is kept, so the path can be 
 | Lambda tool microservices | Governed tools with typed outcomes calling the **real** settlement and reconciliation services, reads through `io_read` and payments through `io_modify`; an unknown outcome is recovered with the same idempotency key, never charged twice | E2A `BaseToolService`, `BaseMCPServer`, `BaseReconciliationService` |
 | AWS deployment | Google Cloud, as Terraform only; container image built and smoke-tested in CI; an AI-DLC release gate (seven stages, RAGAS gate, red team) decides what ships | A2C GCP landing zone; E2A `BasePipeline` |
 
+## Google Cloud (free tier) — hub design note GCP-01
+
+O2C has always run on Google Cloud. For the free tier, `o2c-agent-service/infra` takes variables; their defaults keep the full setup.
+
+| | Full setup (defaults) | Free tier ([`deploy/gcp/binding.vars`](deploy/gcp/binding.vars)) |
+|---|---|---|
+| State | its own Firestore database, PITR, delete protection | the project's one free database, `(default)`, shared by the landscape; O2C's documents in collection `o2c` |
+| Images | its own Artifact Registry repository | the landscape's one repository |
+| Schedules | two Cloud Scheduler jobs (events every minute, recovery every five) | one job calling `POST /internal/jobs/scheduled`, which does both (the landscape has three free jobs) |
+| Who calls | API Gateway verifies an Identity Platform token (`gcp_api_gateway`) | Cloud Run IAM verifies the caller's Google ID token (`gcp_cloud_run`, E2A v1.11.0); the deployment grants each caller its tenants and roles (`identity_subject_roles`) |
+| Calls to settlement and reconciliation | Google ID token exchanged for an Entra token | the Google ID token itself (`workload_identity = "gcp_id_token"`), checked by the targets' Cloud Run IAM |
+| Model | E2A's simulated model | simulated, or Gemini through the Gemini Developer API's free tier (`llm_profile = "gemini_api"`; the image built with `--build-arg POETRY_EXTRAS=gemini`, the key in Secret Manager) |
+| Instances | up to 3 | 1 |
+
+The model is chosen by `E2A_PROVIDER_PROFILE` (`build_o2c_llm()`); the agents and their output checks do not change. `infra/tests/gcp.tftest.hcl` plans the free-tier variant against a mock provider.
+
 ## The project
 
 | Service | Stack | Role |

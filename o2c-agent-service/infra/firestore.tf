@@ -9,6 +9,12 @@ variable "max_instance_count" {
   default     = 3
 }
 
+variable "firestore_database" {
+  type        = string
+  description = "Empty: the service gets its own database (PITR, delete protection). A name, e.g. \"(default)\": use that existing database instead (GCP-01: the free tier has one Firestore database per project, shared by the landscape; collections keep the services apart)."
+  default     = ""
+}
+
 variable "firestore_collection" {
   type        = string
   description = "Collection holding the service's state documents."
@@ -16,6 +22,7 @@ variable "firestore_collection" {
 }
 
 resource "google_firestore_database" "state" {
+  count                             = var.firestore_database == "" ? 1 : 0
   name                              = local.name
   location_id                       = var.region
   type                              = "FIRESTORE_NATIVE"
@@ -25,10 +32,14 @@ resource "google_firestore_database" "state" {
   deletion_policy                   = "ABANDON"
 }
 
+locals {
+  firestore_database = var.firestore_database == "" ? google_firestore_database.state[0].name : var.firestore_database
+}
+
 # Claims carry a "ttl" timestamp: a TTL policy garbage-collects them. Correctness never depends
 # on it: the adapters use their own expiry fields.
 resource "google_firestore_field" "ttl" {
-  database   = google_firestore_database.state.name
+  database   = local.firestore_database
   collection = var.firestore_collection
   field      = "ttl"
   ttl_config {}
@@ -41,10 +52,10 @@ resource "google_project_iam_member" "firestore" {
   member  = "serviceAccount:${google_service_account.app.email}"
   condition {
     title      = "o2c-state-database-only"
-    expression = "resource.name.startsWith(\"projects/${var.project_id}/databases/${google_firestore_database.state.name}\")"
+    expression = "resource.name.startsWith(\"projects/${var.project_id}/databases/${local.firestore_database}\")"
   }
 }
 
 output "firestore_database" {
-  value = google_firestore_database.state.name
+  value = local.firestore_database
 }
