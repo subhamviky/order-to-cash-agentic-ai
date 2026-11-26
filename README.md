@@ -1,5 +1,7 @@
 # Order-to-Cash Agentic AI Platform
 
+![Order-to-Cash Agentic AI Platform](docs/assets/order-to-cash-banner.png)
+
 > The natural-language front door of the Order-to-Cash landscape. Sales, finance and approvers
 > talk to one assistant; agents understand the request, but every material action runs through
 > governed tools with typed outcomes against the two systems of record.
