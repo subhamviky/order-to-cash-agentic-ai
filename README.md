@@ -39,7 +39,7 @@ O2C has always run on Google Cloud. For the free tier, `o2c-agent-service/infra`
 | Model | E2A's simulated model | simulated, or Gemini through the Gemini Developer API's free tier (`llm_profile = "gemini_api"`; the image built with `--build-arg POETRY_EXTRAS=gemini`, the key in Secret Manager) |
 | Instances | up to 3 | 1 |
 
-The model is chosen by `E2A_PROVIDER_PROFILE` (`build_o2c_llm()`); the agents and their output checks do not change. `infra/tests/gcp.tftest.hcl` plans the free-tier variant against a mock provider.
+The model is chosen by `E2A_PROVIDER_PROFILE` (`build_o2c_llm()`); the agents and their output checks do not change. `infra/tests/gcp.tftest.hcl` plans the free-tier variant against a mock provider. **Verified in the cloud on 25 November 2026:** the free-tier variant ran on Cloud Run with its state in the shared Firestore database; two orders were accepted, reserved stock and were paid through the deployed settlement service with Google ID tokens; the first start found that a Firestore grant conditioned on a database name was denied on the shared database, now fixed (design document, Section 5.8).
 
 ## The project
 
