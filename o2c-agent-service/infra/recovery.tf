@@ -37,6 +37,15 @@ resource "google_cloud_scheduler_job" "recover_orders" {
   }
 }
 
+variable "daily_restock" {
+  type        = bool
+  description = "Top each SKU up to its catalog level once a day (O2C_DAILY_RESTOCK). For the demonstration landscape, whose scenario buys goods on every run and would otherwise empty the stock; leave false where stock is real."
+  default     = false
+}
+
 locals {
-  recovery_env = { O2C_RECOVERY_AFTER_SECONDS = tostring(var.recovery_after_seconds) }
+  recovery_env = merge(
+    { O2C_RECOVERY_AFTER_SECONDS = tostring(var.recovery_after_seconds) },
+    var.daily_restock ? { O2C_DAILY_RESTOCK = "true" } : {},
+  )
 }

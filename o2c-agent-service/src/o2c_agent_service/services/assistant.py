@@ -9,6 +9,7 @@ recover():           an unfinished order (payment UNKNOWN, or a saga a crash sto
                      O2CRecovery.reconcile() (E2A BaseReconciliationService).
 """
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -60,6 +61,9 @@ class O2CAssistant:
         self.broker, lease = events or event_ports()
         self.events = BrokerOutboxSweeper(rows.outbox, self.broker, lock=lease) if self.orders.emits_events else None
         self.inventory = InventoryStore({sku: p.stock for sku, p in self.catalog.products.items()}, rows)
+        if os.getenv("O2C_DAILY_RESTOCK", "").lower() == "true":
+            self.inventory.top_up({sku: p.stock for sku, p in self.catalog.products.items()},
+                                  datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         self.governance = O2CGovernance(self.policy)
         self.validation = O2CValidationService(self.policy)
         self.store = claims
