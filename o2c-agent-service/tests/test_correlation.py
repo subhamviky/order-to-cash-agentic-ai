@@ -24,3 +24,19 @@ def test_the_callers_id_is_kept_logged_and_returned(caplog):
     lines = [json.loads(r.getMessage()) for r in caplog.records if r.name == "uvicorn.error"]
     assert lines[0] == {**lines[0], "event": "http_request", "service": "svc", "correlation_id": "run-42",
                         "path": "/thing", "status": 200}
+
+
+def test_the_callers_id_is_sent_on_the_calls_to_settlement():
+    """The id of the incoming request reaches settlement-service (GCP-02 Phase B, item 3)."""
+    import httpx
+    from o2c_agent_service.tools.services import settlement_tools
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers.get("X-Correlation-Id"))
+        return httpx.Response(200, json={"status": "COMPLETED"})
+
+    import asyncio
+    tool = settlement_tools("http://settlement.test", transport=httpx.MockTransport(handler))["get_settlement"]
+    asyncio.run(tool.execute({"settlement_id": "s-1"}, tenant_id="acme", correlation_id="run-42"))
+    assert seen == ["run-42"]

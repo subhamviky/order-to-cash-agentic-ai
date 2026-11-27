@@ -33,7 +33,8 @@ def _call(fn, *args):
 @router.post("/api/v1/assistant", response_model=AssistantResponse)
 def ask(body: AssistantRequest, request: Request, who: Caller = Depends(caller),
         idempotency_key: Optional[str] = Header(None)) -> AssistantResponse:
-    return _call(_assistant(request).handle, body.text, who.tenant_id, who.user_id, who.role, idempotency_key)
+    return _call(_assistant(request).handle, body.text, who.tenant_id, who.user_id, who.role, idempotency_key,
+                 request.state.correlation_id)
 
 
 @router.get("/api/v1/approvals", response_model=List[Approval])
