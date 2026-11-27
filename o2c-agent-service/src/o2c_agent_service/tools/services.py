@@ -45,6 +45,9 @@ class HttpJsonTool(RestToolService):
                    **(kwargs.get("auth_headers") or {})}
         if kwargs.get("idempotency_key"):
             headers["Idempotency-Key"] = kwargs["idempotency_key"]
+        correlation_id = kwargs.get("correlation_id") or getattr(kwargs.get("ctx"), "correlation_id", None)
+        if correlation_id:                       # GCP-02 Phase B: one id through every service
+            headers["X-Correlation-Id"] = correlation_id
         url = endpoint.format(**body)
         params = body.pop("params", None)
         json_body = body.pop("json", None)

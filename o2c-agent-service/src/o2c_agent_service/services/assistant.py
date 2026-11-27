@@ -91,14 +91,17 @@ class O2CAssistant:
 
     # ------------------------------------------------------------------ capabilities
     def handle(self, text: str, tenant_id: str, user_id: str, role: str,
-               idempotency_key: Optional[str] = None) -> AssistantResponse:
-        return self.handle_traced(text, tenant_id, user_id, role, idempotency_key)[0]
+               idempotency_key: Optional[str] = None, correlation_id: Optional[str] = None) -> AssistantResponse:
+        return self.handle_traced(text, tenant_id, user_id, role, idempotency_key, correlation_id)[0]
 
     def handle_traced(self, text: str, tenant_id: str, user_id: str, role: str,
-                      idempotency_key: Optional[str] = None) -> Tuple[AssistantResponse, Dict]:
+                      idempotency_key: Optional[str] = None,
+                      correlation_id: Optional[str] = None) -> Tuple[AssistantResponse, Dict]:
         """handle(), and the workflow's final state: the steps, the tools called (E2A v1.9
         trajectory) and the evaluation. The release gate scores trajectory cases on it."""
         state = {"tenant_id": tenant_id, "user_id": user_id, "role": role, "query": text}
+        if correlation_id:                       # the caller's id follows the request into every call it makes
+            state["correlation_id"] = correlation_id
         self._check("RouterAgent", state)
         with self.governance.limiter.slot():
             state = self.workflow.execute(state, self._request_config(), idempotency_key=idempotency_key)
