@@ -40,3 +40,18 @@ def test_the_callers_id_is_sent_on_the_calls_to_settlement():
     tool = settlement_tools("http://settlement.test", transport=httpx.MockTransport(handler))["get_settlement"]
     asyncio.run(tool.execute({"settlement_id": "s-1"}, tenant_id="acme", correlation_id="run-42"))
     assert seen == ["run-42"]
+
+
+def test_stock_is_topped_up_to_the_catalog_level_once_a_day():
+    """The demonstration landscape buys goods on every scenario run: par-level restock, keyed by day."""
+    from o2c_agent_service.services.stores import InventoryStore
+    level = {"SKU-100": 50}
+    inventory = InventoryStore(level)
+    assert inventory.reserve("SKU-100", 48)
+    assert inventory.available("SKU-100") == 2
+    assert inventory.top_up(level, "2026-11-27") == {"SKU-100": 48}
+    assert inventory.available("SKU-100") == 50
+    assert inventory.reserve("SKU-100", 10)
+    assert inventory.top_up(level, "2026-11-27") == {}          # the same day: nothing more is added
+    assert inventory.available("SKU-100") == 40
+    assert inventory.top_up(level, "2026-11-28") == {"SKU-100": 10}

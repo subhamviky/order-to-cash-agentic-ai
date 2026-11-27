@@ -109,6 +109,18 @@ class InventoryStore:
             # a restart must not reset stock that orders have already reserved.
             self._db.put_if_version(f"stock:{sku}", {"available": quantity}, None)
 
+    def top_up(self, level: dict, day: str) -> dict:
+        """Replenish each SKU to its catalog level, at most once per SKU per day (par-level restocking).
+        The change is keyed by the day, so several instances starting together add the stock once. Used by a
+        demonstration landscape whose scenario buys goods on every run; off unless O2C_DAILY_RESTOCK=true."""
+        added = {}
+        for sku, quantity in level.items():
+            key = f"topup:{sku}:{day}"
+            missing = quantity - self.available(sku)
+            if missing > 0 and key not in self.applied(sku) and self._change(sku, missing, key):
+                added[sku] = missing
+        return added
+
     def available(self, sku: str) -> int:
         row = self._db.get(f"stock:{sku}")
         return int(row["available"]) if row else 0
