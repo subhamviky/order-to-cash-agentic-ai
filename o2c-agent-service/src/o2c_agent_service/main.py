@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from . import correlation
 from .routers.assistant import router as assistant_router
 from .services.assistant import O2CAssistant
 from .services.llm import build_o2c_llm
@@ -16,6 +17,7 @@ SERVICE_ROOT = Path(os.getenv("SERVICE_ROOT", Path(__file__).resolve().parents[2
 
 def build_app(assistant: O2CAssistant) -> FastAPI:
     app = FastAPI(title="o2c-agent-service")
+    correlation.install(app, "o2c-agent-service")
     app.state.assistant = assistant
     app.include_router(assistant_router)
 
