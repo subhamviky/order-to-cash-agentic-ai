@@ -1,6 +1,6 @@
 # Threat model: o2c-agent-service
 
-- **Status:** Reviewed 2026-11-28 · STRIDE · platform model and residual risks: [assistant repository](https://github.com/subhamviky/enterprise-finance-genai-assistant/blob/main/docs/engineering/security/threat-model.md). Synthetic data only.
+- **Status:** Draft 2026-11-28, awaiting owner review · STRIDE · platform model and residual risks: [assistant repository](https://github.com/subhamviky/enterprise-finance-genai-assistant/blob/main/docs/engineering/security/threat-model.md). Synthetic data only.
 
 **Assets:** orders, stock, approvals, the customers' credit limits, order events, the ability to charge through settlement-service.
 
