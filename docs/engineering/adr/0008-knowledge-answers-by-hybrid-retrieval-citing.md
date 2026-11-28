@@ -18,4 +18,4 @@ B. Embeddings are a hashed bag of words by design (G-11); the policy index is re
 
 ## Consequences
 
-Deterministic and free. A real corpus needs a hosted index and real embeddings behind the same port.
+Deterministic and in process. A real corpus needs a hosted index and real embeddings behind the same port.

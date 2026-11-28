@@ -6,7 +6,7 @@
 
 ## Context
 
-A burst must not exhaust the free-tier service.
+A burst must not exhaust the service.
 
 ## Options considered
 

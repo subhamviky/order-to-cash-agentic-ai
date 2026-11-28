@@ -7,7 +7,7 @@
 | Security | [Threat model](security/threat-model.md), [data classification](security/data-classification.md) |
 | Reliability | [SLOs](operations/slo-and-error-budget.md), [incident response](operations/incident-response.md), [disaster recovery](operations/disaster-recovery.md) |
 | Delivery | [Release process](operations/release-process.md), [`CHANGELOG.md`](../../CHANGELOG.md) |
-| Cost and lifecycle | [Cost and capacity](operations/cost-and-capacity.md), [teardown](operations/teardown-and-exit.md) |
+| Capacity and lifecycle | [Capacity](operations/capacity.md), [teardown](operations/teardown-and-exit.md) |
 | Quality | [Test strategy](testing/test-strategy.md) |
 | Interfaces | [API reference](api/API.md) |
 | Product | [Requirements and user stories](product/requirements-and-user-stories.md), [solution overview](product/solution-overview.md), [onboarding](product/onboarding.md) |

@@ -13,7 +13,7 @@ Newest first. [Keep a Changelog](https://keepachangelog.com). Released by commit
 
 ## 25 November 2026 (GCP-01)
 ### Added
-- Google Cloud free-tier deployment: Firestore state, Pub/Sub order events, Cloud Scheduler sweep, identity at ingress.
+- Google Cloud deployment: Firestore state, Pub/Sub order events, Cloud Scheduler sweep, identity at ingress.
 
 ## Earlier
 - Order recovery (keyed effects, RESERVING first, scheduled sweep); the completed project rebuilt from the spike on the E2A and A2C frameworks.

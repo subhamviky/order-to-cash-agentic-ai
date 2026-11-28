@@ -14,4 +14,4 @@ Use cases (UC-1 to UC-7) and requirements are traced in the design document, sec
 | O8 | another agent | read-only stock and order tools | I can use O2C safely | `/mcp` exposes `check_stock` and `get_order` for the caller's tenant only |
 | O9 | operator | the demonstration landscape to keep stock | repeated scenario runs keep working | `O2C_DAILY_RESTOCK` tops up once a day |
 
-Non-functional: private by default; free tier; admission control at 20 in flight. Out of scope: real inventory systems, real payments, a user interface.
+Non-functional: private by default; admission control at 20 in flight. Out of scope: real inventory systems, real payments, a user interface.
