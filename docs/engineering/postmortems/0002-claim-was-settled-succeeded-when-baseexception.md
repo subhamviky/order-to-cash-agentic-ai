@@ -1,6 +1,6 @@
 # 0002: The claim was settled SUCCEEDED when a BaseException escaped a step
 
-- **Date of the work:** 2026 (found in the framework; fixed in E2A v1.8.0)
+- **Date of the work:** 2026 (recorded in the design as gap G-13; the day was not recorded)
 - **Severity:** SEV-3 (see the platform README)
 - **Status:** Actions complete
 - **Authors:** repository owner, with Claude
@@ -11,13 +11,13 @@ E2A's `BaseWorkflow` settled the claim in a `finally` block, so a `BaseException
 
 ## Impact
 
-None on users; the order would have been reported done without its effects.
+None on users: an order could have been reported done without its effects. How it was found was not recorded.
 
 ## Timeline
 
-- Found while reviewing the order saga's recovery against the framework.
+- The design records the defect as gap G-13.
 - Fix in the framework (E2A v1.8.0): the claim is left IN_PROGRESS for recovery when a `BaseException` escapes.
-- O2C picked the fix up by upgrading.
+- O2C is on E2A v1.8.0 or later.
 
 ## Root cause
 

@@ -1,6 +1,6 @@
 # 0001: A crash inside the order saga stranded stock or an order
 
-- **Date of the work:** 2026 (found in design review before the cloud run; exact day not recorded)
+- **Date of the work:** 2026 (recorded in the design as gap G-3; the day was not recorded)
 - **Severity:** SEV-3 (see the platform README)
 - **Status:** Actions partly open
 - **Authors:** repository owner, with Claude
@@ -11,11 +11,11 @@ A crash between steps of the order saga could leave stock reserved with no order
 
 ## Impact
 
-None on users; found by analysing the recovery path and written as a test before it happened in production.
+None on users: the design records it as a gap that was fixed with tests. How it was found was not recorded.
 
 ## Timeline
 
-- Review of the saga's crash points against the recovery code showed two orderings that recovery could not finish.
+- The design's gap G-3 records two orderings of the saga that recovery could not finish.
 - Fix: the order is recorded RESERVING first; stock changes and the charge are keyed; `advance_order` is shared by the request and recovery; recovery takes RESERVING and PENDING_PAYMENT; `409` is UNKNOWN and parks the claim as RECOVERY_REQUIRED naming the order.
 - `test_order_recovery.py` runs on memory and on the emulators.
 
@@ -26,7 +26,7 @@ None on users; found by analysing the recovery path and written as a test before
 
 ## What went well
 
-The failure was found by reasoning about crash points rather than by loss; every effect is keyed, so recovery is safe to repeat.
+Every effect is keyed, so recovery is safe to repeat.
 
 ## Action items
 
