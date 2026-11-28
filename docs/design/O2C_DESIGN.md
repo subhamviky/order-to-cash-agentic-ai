@@ -245,17 +245,17 @@ The tests use in-process fakes of both downstream services (`release/fakes.py`).
 - `OrderExecutionAgent._build_messages` returns `None`: placing an order has no model step.
 - Usage (calls, tokens, cost) is at `GET /api/v1/usage`.
 
-### 5.8 The free-tier configuration on Google Cloud (status: verified, 25 November 2026)
+### 5.8 The configuration on Google Cloud (status: verified, 25 November 2026)
 
-The stack in Section 5.4 is also applied in the Google Cloud trial project of the GenAI landscape (hub design note GCP-01) with variables that leave its defaults unchanged for other deployments. Billing for 1 to 25 November was ₹0.00 of ₹28,569.00.
+The stack in Section 5.4 is also applied in the Google Cloud project of the GenAI landscape (hub design note GCP-01) with variables that leave its defaults unchanged for other deployments.
 
 | Variable (landscape value) | Effect |
 |---|---|
-| `firestore_database = "(default)"` | state in the project's one free Firestore database (collection `o2c`); no database of its own, no point-in-time recovery or delete protection of its own |
-| `max_instance_count = 1`, `combined_schedule` every two minutes | one instance; one Cloud Scheduler job (`POST /internal/jobs/scheduled`: event publishing and order recovery together), because the account has three free scheduler jobs for the whole landscape |
+| `firestore_database = "(default)"` | state in the project's Firestore database (collection `o2c`); no database of its own, no point-in-time recovery or delete protection of its own |
+| `max_instance_count = 1`, `combined_schedule` every two minutes | one instance; one Cloud Scheduler job (`POST /internal/jobs/scheduled`: event publishing and order recovery together), because the account has three scheduler jobs for the whole landscape |
 | `identity_source = gcp_cloud_run`, `workload_identity = gcp_id_token` | no API Gateway or Entra: Cloud Run IAM verifies the caller's Google ID token and E2A maps the verified e-mail to tenants and roles; O2C calls settlement and reconciliation with its own Google ID token |
 | `image_repository` | the landscape's one Artifact Registry repository |
-| model | simulated (the free Gemini quota is kept for the assistant); a `gemini_api` profile is one variable away |
+| model | simulated (the Gemini quota is kept for the assistant); a `gemini_api` profile is one variable away |
 
 What the cloud run confirmed: two orders (3 printers and a varying number of scanners) were accepted through the assistant route, each reserved stock in Firestore, was paid through settlement-service with a Google ID token, and was returned `PAID` with its settlement id; an `Idempotency-Key` per order made a repeated run create new orders instead of replaying the old ones. Findings the real cloud added:
 
