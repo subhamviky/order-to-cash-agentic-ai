@@ -13,3 +13,5 @@
 | Product | [Requirements and user stories](product/requirements-and-user-stories.md), [solution overview](product/solution-overview.md), [onboarding](product/onboarding.md) |
 
 Platform-wide documents live once in the [assistant repository](https://github.com/subhamviky/enterprise-finance-genai-assistant/blob/main/docs/engineering/README.md); pages here cover what is specific to order-to-cash.
+
+> **Status:** all documents here are drafts written on 28 November 2026 from the repository history, design documents, drills and tests, awaiting the owner's review. Where a date or a detail was not recorded, the document says so.
